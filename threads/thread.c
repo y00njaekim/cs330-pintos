@@ -28,6 +28,11 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+/* Customized */
+/* List of processes in THREAD_BLOCKED state, that is, processes
+   that are sleep. */
+static struct list sleep_list;
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -108,6 +113,7 @@ thread_init (void) {
 	/* Init the globla thread context */
 	lock_init (&tid_lock);
 	list_init (&ready_list);
+	list_init (&sleep_list);
 	list_init (&destruction_req);
 
 	/* Set up a thread structure for the running thread. */
@@ -306,6 +312,61 @@ thread_yield (void) {
 		list_push_back (&ready_list, &curr->elem);
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
+}
+
+/* Cusomized.
+   Returns true if wake_up_tick of thread A is less than thread B, false
+   otherwise. */
+static bool
+wake_up_tick_less (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED) 
+{
+  const struct thread *a = list_entry (a_, struct thread, elem);
+  const struct thread *b = list_entry (b_, struct thread, elem);
+  
+  return a->wake_up_tick < b->wake_up_tick;
+}
+
+/* Customized.
+	 ARG : tick - Absolute tick to wake up. */
+void
+thread_sleep (int64_t tick) {
+	enum intr_level old_level;
+	old_level = intr_disable ();
+
+	struct thread *curr = thread_current();
+
+	curr->wake_up_tick = tick;
+	
+	ASSERT (!intr_context ());
+
+	if (curr != idle_thread)
+		list_insert_ordered (&sleep_list, &curr->elem, wake_up_tick_less, NULL);
+	do_schedule (THREAD_BLOCKED);
+	intr_set_level (old_level);
+}
+
+/* Customized.
+   Wake up the sleeping threads, whose
+	 wake_up_tick is less than current tick.
+	 ARG : ticks - # of timer ticks since OS booted.*/
+void
+threads_wake_up(int64_t ticks) {
+	if(!list_empty (&sleep_list)) {
+		struct list_elem *front = list_front (&sleep_list);
+		struct thread *next = list_entry(front, struct thread, elem);
+		while(next->wake_up_tick <= ticks) {
+			list_remove (front);
+			thread_unblock(next);
+
+			if(!list_empty (&sleep_list)) {
+				front = list_front (&sleep_list);
+				next = list_entry(front, struct thread, elem);
+			} else {
+				break;
+			}
+		}
+	}
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */

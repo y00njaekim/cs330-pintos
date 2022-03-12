@@ -1,4 +1,5 @@
 #include "list.h"
+#include "threads/thread.h"
 #include "../debug.h"
 
 /* Our doubly linked lists have two header elements: the "head"
@@ -487,3 +488,4 @@ list_min (struct list *list, list_less_func *less, void *aux) {
 	}
 	return min;
 }
+
