@@ -32,6 +32,21 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+// TODO : list.c 에 선언해서 import 하여 사용하기
+
+/* Cusomized.
+   Returns true if priority of thread A is bigger than thread B, false
+   otherwise. */
+static bool
+prior (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED) 
+{
+  const struct thread *a = list_entry (a_, struct thread, elem);
+  const struct thread *b = list_entry (b_, struct thread, elem);
+
+  return a->priority > b->priority;
+}
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -66,7 +81,7 @@ sema_down (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	while (sema->value == 0) {
-		list_push_back (&sema->waiters, &thread_current ()->elem);
+		list_insert_ordered (&sema->waiters, &thread_current ()->elem, prior, NULL);
 		thread_block ();
 	}
 	sema->value--;
@@ -109,11 +124,14 @@ sema_up (struct semaphore *sema) {
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters))
+	if (!list_empty (&sema->waiters)) {
 		thread_unblock (list_entry (list_pop_front (&sema->waiters),
 					struct thread, elem));
+	}
 	sema->value++;
 	intr_set_level (old_level);
+	// TODO : 왜 if 문 안에다가 이걸 넣으면 오류가 나는걸까.
+	thread_yield();
 }
 
 static void sema_test_helper (void *sema_);
@@ -174,6 +192,27 @@ lock_init (struct lock *lock) {
 	sema_init (&lock->semaphore, 1);
 }
 
+/* Customized. */
+void
+donate_priority(struct lock *lock) {
+	struct thread *curr = thread_current();
+
+	ASSERT (lock != NULL);
+	struct thread *holder = lock->holder;
+
+	/* TODO : holder 는 어디에 있을까 ?
+		 ready_list ? 특정 락의 waiter ? */
+
+	if(holder->priority < curr->priority) {
+		holder->priority = curr->priority;
+	}
+
+	// holder->priority = (holder->priority < curr->priority) ? curr->priority : holder->priority;
+	/* yield 할 필요는 없어보임. donate 한 뒤에 thread_block 함수가 실행되기 때문.
+		 자세한 사항은 thread_block 을 잘 보도록. */
+	// thread_yield();
+}
+
 /* Acquires LOCK, sleeping until it becomes available if
    necessary.  The lock must not already be held by the current
    thread.
@@ -188,6 +227,7 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
+	// donate_priority(lock);
 	sema_down (&lock->semaphore);
 	lock->holder = thread_current ();
 }
@@ -224,6 +264,7 @@ lock_release (struct lock *lock) {
 
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
+	// thread_set_priority(thread_current()->original_priority);
 }
 
 /* Returns true if the current thread holds LOCK, false
