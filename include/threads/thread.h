@@ -107,6 +107,9 @@ struct thread {
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
+
+	/* Customized */
+	int64_t wake_up_tick;               /* Information for switching */
 };
 
 /* If false (default), use round-robin scheduler.
@@ -132,6 +135,8 @@ const char *thread_name (void);
 
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
+void thread_sleep (int64_t tick);
+void threads_wake_up(int64_t tick);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
