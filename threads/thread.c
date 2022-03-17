@@ -96,7 +96,7 @@ prior (const struct list_elem *a_, const struct list_elem *b_,
   const struct thread *a = list_entry (a_, struct thread, elem);
   const struct thread *b = list_entry (b_, struct thread, elem);
 
-  return a->priority > b->priority;
+  return a->priority >= b->priority;
 }
 
 /* Initializes the threading system by transforming the code
@@ -200,8 +200,6 @@ thread_print_stats (void) {
 tid_t
 thread_create (const char *name, int priority,
 		thread_func *function, void *aux) {
-	// printf("@@@@@@@ thread_create @@@@@@@\n");
-	// printf("current tid is %d\n", thread_current()->tid);
 	struct thread *t;
 	tid_t tid;
 
@@ -258,8 +256,6 @@ thread_block (void) {
    update other data. */
 void
 thread_unblock (struct thread *t) {
-	// printf("@@@@@@@ thread_unblock @@@@@@@\n");
-	// printf("current tid is %d\n", thread_current()->tid);
 	enum intr_level old_level;
 
 	ASSERT (is_thread (t));
@@ -268,15 +264,6 @@ thread_unblock (struct thread *t) {
 	ASSERT (t->status == THREAD_BLOCKED);
 	list_insert_ordered (&ready_list, &t->elem, prior, NULL);
 	t->status = THREAD_READY;
-
-	// if(thread_current() == idle_thread)
-	// 	printf("In thread_unblock, curr is idle\n");
-	// else
-	// 	printf("In thread_unblock, curr is not idle\n");
-
-	/* Critical point */
-	// thread_yield();
-
 	intr_set_level (old_level);
 }
 
@@ -331,48 +318,17 @@ thread_exit (void) {
    may be scheduled again immediately at the scheduler's whim. */
 void
 thread_yield (void) {
-	// printf("@@@@@@@ thread_yield @@@@@@@\n");
 	struct thread *curr = thread_current();
-	// printf("current tid is %d\n", curr->tid);
 	enum intr_level old_level;
 
 	ASSERT (!intr_context ());
 
 	old_level = intr_disable ();
 
-	// if(curr == idle_thread) {
-	// 	printf("In thread_yield, curr is idle\n");
-	// 	printf("%d\n", curr->priority);
-	// }
-	// else {
-	// 	printf("In thread_yield, curr is not idle\n");
-	// 	printf("%d\n", curr->priority);
-	// }
-
-	// TODO : ready_list 가 비어있으면 ?
-
-	/* 1) list 가 비어있음 -> 현재 스레드 유지? or idle_thread 로 바꾸기?
-		    -> 일단 '현재 스레드 유지' 로 선택 (안바꿈)
-		 2) curr 이 idle_thread -> 바꾸면 됨
-		 3) next 가 idle_thread -> 바꾸면 됨
-		 		-> (아마 idle_thread priority 0으로 초기화 되어 있을 것)
-
-		 4) ready_list 의 front thread 보다 현재 실행중인 thread 의 우선순위가
-		    같거나 높으면 yield 실행 X (안바꿈) */
-
-	if(list_empty(&ready_list)) {
-		// printf("return; list_empty;\n");
-		intr_set_level(old_level);
-		return;
-	} else if(curr != idle_thread && curr->priority >= list_entry (list_front(&ready_list), struct thread, elem)->priority) {
-		// printf("return; I am the king;\n");
-		intr_set_level (old_level);
-		return;
-	}		
-
 	if (curr != idle_thread)
 		list_insert_ordered (&ready_list, &curr->elem, prior, NULL);
 	do_schedule (THREAD_READY);
+
 	intr_set_level (old_level);
 }
 
@@ -435,14 +391,11 @@ threads_wake_up(int64_t ticks) {
    Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	// TODO : interrupt enable 이 맞으려나?
+
+	// QUESTION : interrupt enable 이 맞을까 ?
 
 	ASSERT (PRI_MIN <= new_priority && new_priority <= PRI_MAX);
 
-	struct thread *curr = thread_current ();  
-
-	/* TODO : Donation 고려하였을 때
-		priority 설정하는 방법 다시 적용 */
 	thread_current ()->priority = new_priority;
 
 	thread_yield();
@@ -451,10 +404,9 @@ thread_set_priority (int new_priority) {
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void) {
-	// TODO : interrupt enable 이 맞으려나?
 
-	/* TODO : Donation 고려하였을 때
-		 priority return 하는 방법 다시 적용 */
+	// QUESTION : interrupt enable 이 맞을까 ?
+
 	return thread_current ()->priority;
 }
 
@@ -546,8 +498,12 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
-	// t->original_priority = priority;
 	t->magic = THREAD_MAGIC;
+	
+	/* Customized */
+	t->original_priority = priority;
+	t->waiting_lock = NULL;
+	list_init(&(t->donor_list));
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

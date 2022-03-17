@@ -44,7 +44,7 @@ prior (const struct list_elem *a_, const struct list_elem *b_,
   const struct thread *a = list_entry (a_, struct thread, elem);
   const struct thread *b = list_entry (b_, struct thread, elem);
 
-  return a->priority > b->priority;
+  return a->priority >= b->priority;
 }
 
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
@@ -124,13 +124,14 @@ sema_up (struct semaphore *sema) {
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters)) {
+	if (!list_empty (&sema->waiters))
 		thread_unblock (list_entry (list_pop_front (&sema->waiters),
 					struct thread, elem));
-	}
 	sema->value++;
 	intr_set_level (old_level);
-	// TODO : 왜 if 문 안에다가 이걸 넣으면 오류가 나는걸까.
+
+	/* TODO : if 문 안에다가 thread_yield() 넣었을 때 에러 발생
+	   -> 의사결정 후 if 문 안에 넣는 판단 시 error 해결 */
 	thread_yield();
 }
 
@@ -227,7 +228,6 @@ lock_acquire (struct lock *lock) {
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
-	// donate_priority(lock);
 	sema_down (&lock->semaphore);
 	lock->holder = thread_current ();
 }
@@ -264,7 +264,6 @@ lock_release (struct lock *lock) {
 
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
-	// thread_set_priority(thread_current()->original_priority);
 }
 
 /* Returns true if the current thread holds LOCK, false
