@@ -90,11 +90,21 @@ static uint64_t gdt[3] = { 0, 0x00af9a000000ffff, 0x00cf92000000ffff };
    Returns true if priority of thread A is bigger than thread B, false
    otherwise. */
 static bool
-prior (const struct list_elem *a_, const struct list_elem *b_,
+prior_elem (const struct list_elem *a_, const struct list_elem *b_,
             void *aux UNUSED) 
 {
   const struct thread *a = list_entry (a_, struct thread, elem);
   const struct thread *b = list_entry (b_, struct thread, elem);
+
+  return a->priority >= b->priority;
+}
+
+static bool
+prior_donor_elem (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED) 
+{
+  const struct thread *a = list_entry (a_, struct thread, donor_elem);
+  const struct thread *b = list_entry (b_, struct thread, donor_elem);
 
   return a->priority >= b->priority;
 }
@@ -262,14 +272,14 @@ thread_unblock (struct thread *t) {
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_insert_ordered (&ready_list, &t->elem, prior, NULL);
+	list_insert_ordered (&ready_list, &t->elem, prior_elem, NULL);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
 }
 
 void
 list_insert_ordered_ready_list(struct list_elem *elem) {
-	list_insert_ordered (&ready_list, elem, prior, NULL);
+	list_insert_ordered (&ready_list, elem, prior_elem, NULL);
 }
 
 /* Returns the name of the running thread. */
@@ -331,7 +341,7 @@ thread_yield (void) {
 	old_level = intr_disable ();
 
 	if (curr != idle_thread)
-		list_insert_ordered (&ready_list, &curr->elem, prior, NULL);
+		list_insert_ordered (&ready_list, &curr->elem, prior_elem, NULL);
 	do_schedule (THREAD_READY);
 
 	intr_set_level (old_level);
@@ -401,7 +411,16 @@ thread_set_priority (int new_priority) {
 
 	ASSERT (PRI_MIN <= new_priority && new_priority <= PRI_MAX);
 
-	thread_current ()->priority = new_priority;
+	struct thread *curr = thread_current();
+
+	curr->original_priority = new_priority;
+
+	if(list_empty(&curr->donor_list)) {
+		curr->priority = curr->original_priority;
+	} else {
+		// TODO (DONE) : 그냥 max 가져오기
+		curr->priority = list_entry(list_max(&curr->donor_list, prior_donor_elem, NULL), struct thread, donor_elem)->priority;
+	}
 
 	thread_yield();
 }

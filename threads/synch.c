@@ -209,10 +209,12 @@ lock_init (struct lock *lock) {
 
 /* Customized. */
 void
-donate(struct thread *donor, struct lock *lock) {
+donate(struct lock *lock) {
 	enum intr_level old_level;
 	old_level = intr_disable ();
-	
+
+	struct thread *donor = thread_current();
+
 	ASSERT (lock != NULL);
 
 	struct lock *relative_lock = lock;
@@ -267,17 +269,18 @@ lock_acquire (struct lock *lock) {
 
 	// QUESTION : intr_disable 안해도 돼?
 
+	ASSERT (lock != NULL);
+	ASSERT (!intr_context ());
+	ASSERT (!lock_held_by_current_thread (lock));
+	
 	struct thread *curr = thread_current();
 	
 	if (lock->holder != NULL)
 	{
 		curr->waiting_lock = lock;
-		donate(curr, lock);
+		donate(lock);
 	}
 
-	ASSERT (lock != NULL);
-	ASSERT (!intr_context ());
-	ASSERT (!lock_held_by_current_thread (lock));
 
 	sema_down (&lock->semaphore);
 
@@ -306,8 +309,9 @@ lock_try_acquire (struct lock *lock) {
 
 /* Customized */
 void
-donor_release (struct thread *grantor, struct lock *lock) {
-	grantor = thread_current();
+donor_release (struct lock *lock) {
+	struct thread *grantor = thread_current();
+
 	enum intr_level old_level;
 	old_level = intr_disable ();
 	
@@ -343,27 +347,19 @@ lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
 
-	// struct thread *curr = thread_current();
-	struct thread *lock_holder = lock->holder;
+	struct thread *curr = thread_current();
 
 	lock->holder = NULL;
 
-	if(!list_empty(&lock_holder->donor_list)) donor_release(lock->holder, lock);
-	if(list_empty(&lock_holder->donor_list)) {
-		lock_holder->priority = lock_holder->original_priority;
+	if(!list_empty(&curr->donor_list)) donor_release(lock);
+	if(list_empty(&curr->donor_list)) {
+		curr->priority = curr->original_priority;
 	} else {
-		// TODO : 그냥 max 가져오기
-		lock_holder->priority = list_entry(list_max(&lock_holder->donor_list, prior_donor_elem, NULL), struct thread, donor_elem)->priority;
+		// TODO (DONE) : 그냥 max 가져오기
+		curr->priority = list_entry(list_max(&curr->donor_list, prior_donor_elem, NULL), struct thread, donor_elem)->priority;
 	}
 
 	sema_up (&lock->semaphore);
-
-	// if(!list_empty(&lock_holder->donor_list)) donor_release(lock->holder, lock);
-	// if(list_empty(&lock_holder->donor_list)) {
-	// 	thread_set_priority(lock_holder->original_priority);
-	// } else {
-	// 	thread_set_priority(list_entry(list_front(&lock_holder->donor_list), struct thread, donor_elem)->priority);
-	// }
 }
 
 /* Returns true if the current thread holds LOCK, false
