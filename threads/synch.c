@@ -44,7 +44,7 @@ prior_elem (const struct list_elem *a_, const struct list_elem *b_,
   const struct thread *a = list_entry (a_, struct thread, elem);
   const struct thread *b = list_entry (b_, struct thread, elem);
 
-  return a->priority >= b->priority;
+  return a->priority > b->priority;
 }
 
 static bool
@@ -54,7 +54,7 @@ prior_donor_elem (const struct list_elem *a_, const struct list_elem *b_,
   const struct thread *a = list_entry (a_, struct thread, donor_elem);
   const struct thread *b = list_entry (b_, struct thread, donor_elem);
 
-  return a->priority >= b->priority;
+  return a->priority > b->priority;
 }
 
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
@@ -136,8 +136,9 @@ sema_up (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	if (!list_empty (&sema->waiters)) {
-		thread_unblock (list_entry (list_pop_front (&sema->waiters),
-					struct thread, elem));
+		list_sort(&sema->waiters, prior_elem, NULL);
+		thread_unblock(list_entry(list_pop_front(&sema->waiters),
+															struct thread, elem));
 		is_unblocked = true;
 	}
 	sema->value++;
@@ -272,7 +273,7 @@ lock_acquire (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
-	
+
 	struct thread *curr = thread_current();
 	
 	if (lock->holder != NULL)
@@ -378,6 +379,16 @@ struct semaphore_elem {
 	struct semaphore semaphore;         /* This semaphore. */
 };
 
+static bool
+prior_sema_elem (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED) 
+{
+  const struct semaphore_elem *a = list_entry (a_, struct semaphore_elem, elem);
+  const struct semaphore_elem *b = list_entry (b_, struct semaphore_elem, elem);
+
+	return list_entry(list_begin(&a->semaphore.waiters), struct thread, elem)->priority > list_entry(list_begin(&b->semaphore.waiters), struct thread, elem)->priority;
+}
+
 /* Initializes condition variable COND.  A condition variable
    allows one piece of code to signal a condition and cooperating
    code to receive the signal and act upon it. */
@@ -418,7 +429,7 @@ cond_wait (struct condition *cond, struct lock *lock) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	sema_init (&waiter.semaphore, 0);
-	list_push_back (&cond->waiters, &waiter.elem);
+	list_insert_ordered(&cond->waiters, &waiter.elem, prior_sema_elem, NULL);
 	lock_release (lock);
 	sema_down (&waiter.semaphore);
 	lock_acquire (lock);
@@ -438,9 +449,12 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED) {
 	ASSERT (!intr_context ());
 	ASSERT (lock_held_by_current_thread (lock));
 
-	if (!list_empty (&cond->waiters))
-		sema_up (&list_entry (list_pop_front (&cond->waiters),
-					struct semaphore_elem, elem)->semaphore);
+	if (!list_empty (&cond->waiters)) {
+		list_sort(&cond->waiters, prior_sema_elem, NULL);
+		sema_up(&list_entry(list_pop_front(&cond->waiters),
+												struct semaphore_elem, elem)
+								 ->semaphore);
+	}
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by

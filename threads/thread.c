@@ -96,7 +96,7 @@ prior_elem (const struct list_elem *a_, const struct list_elem *b_,
   const struct thread *a = list_entry (a_, struct thread, elem);
   const struct thread *b = list_entry (b_, struct thread, elem);
 
-  return a->priority >= b->priority;
+  return a->priority > b->priority;
 }
 
 static bool
@@ -106,7 +106,7 @@ prior_donor_elem (const struct list_elem *a_, const struct list_elem *b_,
   const struct thread *a = list_entry (a_, struct thread, donor_elem);
   const struct thread *b = list_entry (b_, struct thread, donor_elem);
 
-  return a->priority >= b->priority;
+  return a->priority > b->priority;
 }
 
 /* Initializes the threading system by transforming the code
