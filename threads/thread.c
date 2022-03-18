@@ -28,10 +28,6 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
-struct list *get_ready_list (void) {
-	return &ready_list;
-}
-
 /* Customized */
 /* List of processes in THREAD_BLOCKED state, that is, processes
    that are sleep. */
@@ -269,6 +265,11 @@ thread_unblock (struct thread *t) {
 	list_insert_ordered (&ready_list, &t->elem, prior, NULL);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
+}
+
+void
+list_insert_ordered_to_ready_list(struct list_elem *elem) {
+	list_insert_ordered (&ready_list, elem, prior, NULL);
 }
 
 /* Returns the name of the running thread. */

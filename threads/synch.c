@@ -210,35 +210,48 @@ lock_init (struct lock *lock) {
 /* Customized. */
 void
 donate(struct thread *donor, struct lock *lock) {
+	enum intr_level old_level;
+	old_level = intr_disable ();
+	
 	ASSERT (lock != NULL);
 
 	struct lock *relative_lock = lock;
 	struct thread *relative_holder = relative_lock->holder;
 
-	relative_holder->priority = (relative_holder->priority < donor->priority) ? donor->priority : relative_holder->priority;
 	list_insert_ordered (&relative_holder->donor_list, &donor->donor_elem, prior_donor_elem, NULL);
-
-	// TODO (DONE) : waiting lock 을 기다리는 thread 가 lock 을 얻으면 waiting lock NULL 로 변경
+	
+	relative_holder->priority = (relative_holder->priority < donor->priority) ? donor->priority : relative_holder->priority;
 	relative_lock = relative_holder->waiting_lock;
+	list_remove(&relative_holder->elem);
+	if (relative_lock == NULL)
+	{
+		// Ready List 에 있다고 확신할 수 있나?
+		list_insert_ordered_ready_list (&relative_holder->elem);
+	}
+	else
+	{
+		list_insert_ordered (&(relative_lock->semaphore.waiters), &relative_holder->elem, prior_elem, NULL);
+	}
+
 	while (relative_lock != NULL) {
 		// QUESTION : relative holder 가 자기 자신일 수도 있나?
 		relative_holder = relative_lock->holder;
+
 		relative_holder->priority = (relative_holder->priority < donor->priority) ? donor->priority : relative_holder->priority;
-
 		relative_lock = relative_holder->waiting_lock;
-
 		list_remove(&relative_holder->elem);
-
 		if (relative_lock == NULL)
 		{
 			// Ready List 에 있다고 확신할 수 있나?
-			list_insert_ordered (get_ready_list(), &relative_holder->elem, prior_elem, NULL);
+			list_insert_ordered_ready_list (&relative_holder->elem);
 		}
 		else
 		{
 			list_insert_ordered (&(relative_lock->semaphore.waiters), &relative_holder->elem, prior_elem, NULL);
 		}
 	}
+
+	intr_set_level (old_level);
 }
 
 /* Acquires LOCK, sleeping until it becomes available if
@@ -294,6 +307,9 @@ lock_try_acquire (struct lock *lock) {
 /* Customized */
 void
 donor_release (struct thread *grantor, struct lock *lock) {
+	enum intr_level old_level;
+	old_level = intr_disable ();
+	
 	struct thread *donor;
 	struct list_elem *donor_list_elem;
 
@@ -312,6 +328,7 @@ donor_release (struct thread *grantor, struct lock *lock) {
 
 	if(need_to_delete != NULL) 
 		list_remove(need_to_delete);
+	intr_set_level (old_level);
 }
 
 /* Releases LOCK, which must be owned by the current thread.
@@ -329,14 +346,24 @@ lock_release (struct lock *lock) {
 	struct thread *lock_holder = lock->holder;
 
 	lock->holder = NULL;
-	sema_up (&lock->semaphore);
+
 
 	if(!list_empty(&lock_holder->donor_list)) donor_release(lock->holder, lock);
 	if(list_empty(&lock_holder->donor_list)) {
-		thread_set_priority(lock_holder->original_priority);
+		lock_holder->priority = lock_holder->original_priority;
 	} else {
-		thread_set_priority(list_entry(list_front(&lock_holder->donor_list), struct thread, donor_elem)->priority);
+		// TODO : 그냥 max 가져오기
+		lock_holder->priority = list_entry(list_max(&lock_holder->donor_list, prior_donor_elem, NULL), struct thread, donor_elem)->priority;
 	}
+
+	sema_up (&lock->semaphore);
+
+	// if(!list_empty(&lock_holder->donor_list)) donor_release(lock->holder, lock);
+	// if(list_empty(&lock_holder->donor_list)) {
+	// 	thread_set_priority(lock_holder->original_priority);
+	// } else {
+	// 	thread_set_priority(list_entry(list_front(&lock_holder->donor_list), struct thread, donor_elem)->priority);
+	// }
 }
 
 /* Returns true if the current thread holds LOCK, false
