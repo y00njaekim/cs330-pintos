@@ -28,6 +28,10 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+struct list *get_ready_list (void) {
+	return &ready_list;
+}
+
 /* Customized */
 /* List of processes in THREAD_BLOCKED state, that is, processes
    that are sleep. */
@@ -503,7 +507,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 	/* Customized */
 	t->original_priority = priority;
 	t->waiting_lock = NULL;
-	list_init(&(t->donor_list));
+	list_init(&t->donor_list);
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

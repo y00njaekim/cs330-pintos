@@ -95,10 +95,11 @@ struct thread {
 	/* Customized */
 	int original_priority;
 	struct list donor_list;
+	struct list_elem donor_elem;
 	struct lock *waiting_lock;
 
 	/* Shared between thread.c and synch.c. */
-	struct list_elem elem;              /* List element. */
+	struct list_elem elem; /* List element. It is in ready_list / waiting_list of lock / sleep_list , and so on. */
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */

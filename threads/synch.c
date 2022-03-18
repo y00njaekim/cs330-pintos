@@ -38,11 +38,21 @@
    Returns true if priority of thread A is bigger than thread B, false
    otherwise. */
 static bool
-prior (const struct list_elem *a_, const struct list_elem *b_,
+prior_elem (const struct list_elem *a_, const struct list_elem *b_,
             void *aux UNUSED) 
 {
   const struct thread *a = list_entry (a_, struct thread, elem);
   const struct thread *b = list_entry (b_, struct thread, elem);
+
+  return a->priority >= b->priority;
+}
+
+static bool
+prior_donor_elem (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED) 
+{
+  const struct thread *a = list_entry (a_, struct thread, donor_elem);
+  const struct thread *b = list_entry (b_, struct thread, donor_elem);
 
   return a->priority >= b->priority;
 }
@@ -81,7 +91,7 @@ sema_down (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	while (sema->value == 0) {
-		list_insert_ordered (&sema->waiters, &thread_current ()->elem, prior, NULL);
+		list_insert_ordered (&sema->waiters, &thread_current ()->elem, prior_elem, NULL);
 		thread_block ();
 	}
 	sema->value--;
@@ -119,20 +129,24 @@ sema_try_down (struct semaphore *sema) {
    This function may be called from an interrupt handler. */
 void
 sema_up (struct semaphore *sema) {
+	bool is_unblocked = false;
 	enum intr_level old_level;
 
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters))
+	if (!list_empty (&sema->waiters)) {
 		thread_unblock (list_entry (list_pop_front (&sema->waiters),
 					struct thread, elem));
+		is_unblocked = true;
+	}
 	sema->value++;
 	intr_set_level (old_level);
 
-	/* TODO : if 문 안에다가 thread_yield() 넣었을 때 에러 발생
+	/* TODO (DONE) : if 문 안에다가 thread_yield() 넣었을 때 에러 발생
 	   -> 의사결정 후 if 문 안에 넣는 판단 시 error 해결 */
-	thread_yield();
+	if(is_unblocked) thread_yield();
+		
 }
 
 static void sema_test_helper (void *sema_);
@@ -195,23 +209,36 @@ lock_init (struct lock *lock) {
 
 /* Customized. */
 void
-donate_priority(struct lock *lock) {
-	struct thread *curr = thread_current();
-
+donate(struct thread *donor, struct lock *lock) {
 	ASSERT (lock != NULL);
-	struct thread *holder = lock->holder;
 
-	/* TODO : holder 는 어디에 있을까 ?
-		 ready_list ? 특정 락의 waiter ? */
+	struct lock *relative_lock = lock;
+	struct thread *relative_holder = relative_lock->holder;
 
-	if(holder->priority < curr->priority) {
-		holder->priority = curr->priority;
+	relative_holder->priority = (relative_holder->priority < donor->priority) ? donor->priority : relative_holder->priority;
+	list_insert_ordered (&relative_holder->donor_list, &donor->donor_elem, prior_donor_elem, NULL);
+
+	// TODO (DONE) : waiting lock 을 기다리는 thread 가 lock 을 얻으면 waiting lock NULL 로 변경
+	relative_lock = relative_holder->waiting_lock;
+	while (relative_lock != NULL) {
+		// QUESTION : relative holder 가 자기 자신일 수도 있나?
+		relative_holder = relative_lock->holder;
+		relative_holder->priority = (relative_holder->priority < donor->priority) ? donor->priority : relative_holder->priority;
+
+		relative_lock = relative_holder->waiting_lock;
+
+		list_remove(&relative_holder->elem);
+
+		if (relative_lock == NULL)
+		{
+			// Ready List 에 있다고 확신할 수 있나?
+			list_insert_ordered (get_ready_list(), &relative_holder->elem, prior_elem, NULL);
+		}
+		else
+		{
+			list_insert_ordered (&(relative_lock->semaphore.waiters), &relative_holder->elem, prior_elem, NULL);
+		}
 	}
-
-	// holder->priority = (holder->priority < curr->priority) ? curr->priority : holder->priority;
-	/* yield 할 필요는 없어보임. donate 한 뒤에 thread_block 함수가 실행되기 때문.
-		 자세한 사항은 thread_block 을 잘 보도록. */
-	// thread_yield();
 }
 
 /* Acquires LOCK, sleeping until it becomes available if
@@ -224,12 +251,25 @@ donate_priority(struct lock *lock) {
    we need to sleep. */
 void
 lock_acquire (struct lock *lock) {
+
+	// QUESTION : intr_disable 안해도 돼?
+
+	struct thread *curr = thread_current();
+	
+	if (lock->holder != NULL)
+	{
+		curr->waiting_lock = lock;
+		donate(curr, lock);
+	}
+
 	ASSERT (lock != NULL);
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
 	sema_down (&lock->semaphore);
-	lock->holder = thread_current ();
+
+	curr->waiting_lock = NULL;
+	lock->holder = curr;
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -251,6 +291,29 @@ lock_try_acquire (struct lock *lock) {
 	return success;
 }
 
+/* Customized */
+void
+donor_release (struct thread *grantor, struct lock *lock) {
+	struct thread *donor;
+	struct list_elem *donor_list_elem;
+
+	struct list_elem *need_to_delete = NULL;
+	for (donor_list_elem = list_begin(&grantor->donor_list); donor_list_elem != list_end(&grantor->donor_list); donor_list_elem = list_next (donor_list_elem)) {
+		if(need_to_delete != NULL) {
+			list_remove(need_to_delete);
+			need_to_delete = NULL;
+		}
+
+		donor = list_entry(donor_list_elem, struct thread, donor_elem);
+
+		if(donor->waiting_lock == lock)
+			need_to_delete = &donor->donor_elem;
+	}
+
+	if(need_to_delete != NULL) 
+		list_remove(need_to_delete);
+}
+
 /* Releases LOCK, which must be owned by the current thread.
    This is lock_release function.
 
@@ -262,8 +325,18 @@ lock_release (struct lock *lock) {
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
 
+	// struct thread *curr = thread_current();
+	struct thread *lock_holder = lock->holder;
+
 	lock->holder = NULL;
 	sema_up (&lock->semaphore);
+
+	if(!list_empty(&lock_holder->donor_list)) donor_release(lock->holder, lock);
+	if(list_empty(&lock_holder->donor_list)) {
+		thread_set_priority(lock_holder->original_priority);
+	} else {
+		thread_set_priority(list_entry(list_front(&lock_holder->donor_list), struct thread, donor_elem)->priority);
+	}
 }
 
 /* Returns true if the current thread holds LOCK, false
