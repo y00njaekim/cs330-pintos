@@ -307,6 +307,7 @@ lock_try_acquire (struct lock *lock) {
 /* Customized */
 void
 donor_release (struct thread *grantor, struct lock *lock) {
+	grantor = thread_current();
 	enum intr_level old_level;
 	old_level = intr_disable ();
 	
