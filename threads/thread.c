@@ -268,7 +268,7 @@ thread_unblock (struct thread *t) {
 }
 
 void
-list_insert_ordered_to_ready_list(struct list_elem *elem) {
+list_insert_ordered_ready_list(struct list_elem *elem) {
 	list_insert_ordered (&ready_list, elem, prior, NULL);
 }
 
@@ -411,8 +411,8 @@ int
 thread_get_priority (void) {
 
 	// QUESTION : interrupt enable 이 맞을까 ?
-
-	return thread_current ()->priority;
+	int ret = thread_current()->priority;
+	return ret;
 }
 
 /* Sets the current thread's nice value to NICE. */

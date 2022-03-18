@@ -226,7 +226,7 @@ donate(struct thread *donor, struct lock *lock) {
 	if (relative_lock == NULL)
 	{
 		// Ready List 에 있다고 확신할 수 있나?
-		list_insert_ordered_ready_list (&relative_holder->elem);
+		list_insert_ordered_ready_list(&relative_holder->elem);
 	}
 	else
 	{
@@ -243,7 +243,7 @@ donate(struct thread *donor, struct lock *lock) {
 		if (relative_lock == NULL)
 		{
 			// Ready List 에 있다고 확신할 수 있나?
-			list_insert_ordered_ready_list (&relative_holder->elem);
+			list_insert_ordered_ready_list(&relative_holder->elem);
 		}
 		else
 		{
@@ -346,7 +346,6 @@ lock_release (struct lock *lock) {
 	struct thread *lock_holder = lock->holder;
 
 	lock->holder = NULL;
-
 
 	if(!list_empty(&lock_holder->donor_list)) donor_release(lock->holder, lock);
 	if(list_empty(&lock_holder->donor_list)) {

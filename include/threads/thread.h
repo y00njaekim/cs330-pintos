@@ -134,7 +134,7 @@ tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
 void thread_block (void);
 void thread_unblock (struct thread *);
-void list_insert_ordered_to_ready_list(struct list_elem *); /* Customized */
+void list_insert_ordered_ready_list(struct list_elem *); /* Customized */
 
 struct thread *thread_current (void);
 tid_t thread_tid (void);
