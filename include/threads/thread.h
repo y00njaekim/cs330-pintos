@@ -28,6 +28,10 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+#define NICE_DEFAULT 0
+#define RECENT_CPU_DEFAULT 0
+#define LOAD_AVG_DEFAULT 0 
+
 /* A kernel thread or user process.
  *
  * Each thread structure is stored in its own 4 kB page.  The
@@ -99,7 +103,9 @@ struct thread {
 	struct lock *waiting_lock;
 
 	struct list_elem thread_elem; /* It is in thread_list for tracking all the existing thread */
-	
+	int nice;
+	int recent_cpu;
+
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem; /* List element. It is in ready_list / waiting_list of lock / sleep_list , and so on. */
 
