@@ -46,6 +46,10 @@ static struct lock tid_lock;
 /* Thread destruction requests */
 static struct list destruction_req;
 
+/* Customized
+   Tracking all the existing threads */
+static struct list thread_list;
+
 /* Statistics. */
 static long long idle_ticks;    /* # of timer ticks spent idle. */
 static long long kernel_ticks;  /* # of timer ticks in kernel threads. */
@@ -142,6 +146,7 @@ thread_init (void) {
 	list_init (&ready_list);
 	list_init (&sleep_list);
 	list_init (&destruction_req);
+	list_init (&thread_list);
 
 	/* Set up a thread structure for the running thread. */
 	initial_thread = running_thread ();
@@ -239,6 +244,11 @@ thread_create (const char *name, int priority,
 
 	/* Add to run queue. */
 	thread_unblock (t);
+
+	/* Customized */
+	
+	// QUESTION : thread_create 에서 idle_thread 만들 일이 있으려나 ? 있을듯
+	list_push_back(&thread_list, &t->thread_elem);
 	thread_yield();
 
 	return tid;
@@ -437,6 +447,69 @@ thread_get_priority (void) {
 	int ret = thread_current()->priority;
 	return ret;
 }
+
+/* Customized.
+	 For mlfqs */
+
+void
+priority_update_all() {
+	struct thread *curr = thread_current ();
+	struct lock *waiting_lock;
+
+	struct thread *t;
+	if (thread_ticks >= TIME_SLICE)
+	{
+		struct list_elem *t_elem;
+		for (t_elem = list_begin(&thread_list); t_elem != list_end(&thread_list); t_elem = list_next(t_elem))
+		{
+			t = list_entry(t_elem, struct thread, thread_elem);
+			// QUESTION : idle_thread 체크 필요하려나? 일단 필요하다고 생각 - init_thread 에서 생성한 특정 thread 를 idle 로 지목한다고 이해중
+			if(t != idle_thread) {
+				t->priority = eval_priority(t);
+
+				waiting_lock = t->waiting_lock;
+				if (waiting_lock == NULL)
+				{
+					list_insert_ordered(&ready_list, &t->elem, prior_elem, NULL);
+				}
+				else
+				{
+					list_insert_ordered (&(waiting_lock->semaphore.waiters), &t->elem, prior_elem, NULL);
+				}
+			}
+		}
+	}
+}
+
+void
+rcpu_increment() {
+	struct thread *curr = thread_current ();
+	if (curr != idle_thread)
+		curr->recent_cpu++;
+}
+
+void
+load_avg_update() {
+	struct thread *curr = thread_current();
+
+	// TODO : list_size return 형은 size 이기 때문에 조정 필요할 수도
+	int ready_threads = (curr == idle_thread) ? list_size(&ready_list) : list_size(&ready_list) + 1;
+	load_avg = eval_load_avg(ready_threads);
+}
+
+void
+rcpu_update_all() {
+	struct thread *curr = thread_current ();
+
+	struct thread *t;
+	struct list_elem *t_elem;
+	for (t_elem = list_begin(&thread_list); t_elem != list_end(&thread_list); t_elem = list_next (t_elem)) {
+		t = list_entry(t_elem, struct thread, thread_elem);
+		// QUESTION : idle_thread 체크 필요하려나? 일단 필요하다고 생각 - init_thread 에서 생성한 특정 thread 를 idle 로 지목한다고 이해중
+		if(t != idle_thread)
+			t->recent_cpu = eval_recent_cpu(t);
+	}
+};
 
 /* Sets the current thread's nice value to NICE. */
 void
@@ -697,7 +770,9 @@ do_schedule(int status) {
 	while (!list_empty (&destruction_req)) {
 		struct thread *victim =
 			list_entry (list_pop_front (&destruction_req), struct thread, elem);
+		list_remove(&victim->thread_elem);
 		palloc_free_page(victim);
+
 	}
 	thread_current ()->status = status;
 	schedule ();

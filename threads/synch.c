@@ -212,6 +212,8 @@ lock_init (struct lock *lock) {
 /* Customized. */
 void
 donate(struct lock *lock) {
+	ASSERT (!thread_mlfqs);
+
 	// TODO : intr_disable() 필요성 의사 결정
 	enum intr_level old_level;
 	old_level = intr_disable ();
@@ -281,7 +283,7 @@ lock_acquire (struct lock *lock) {
 	if (lock->holder != NULL)
 	{
 		curr->waiting_lock = lock;
-		donate(lock);
+		if(!thread_mlfqs) donate(lock);
 	}
 
 
@@ -313,6 +315,9 @@ lock_try_acquire (struct lock *lock) {
 /* Customized */
 void
 donor_release (struct lock *lock) {
+
+	ASSERT (!thread_mlfqs);
+
 	// TODO : intr_disable() 필요성 의사 결정
 	struct thread *grantor = thread_current();
 
@@ -356,13 +361,15 @@ lock_release (struct lock *lock) {
 
 	lock->holder = NULL;
 
-	if(!list_empty(&curr->donor_list)) donor_release(lock);
-	if(list_empty(&curr->donor_list)) {
-		curr->priority = curr->original_priority;
-	} else {
-		/* TODO : 그냥 max 가져올 거면 list_insert order 쓰는 overhead 없애기
-		아니면 sort 후 pop_front 로 바꾸기 */
-		curr->priority = list_entry(list_max(&curr->donor_list, prior_donor_elem, NULL), struct thread, donor_elem)->priority;
+	if(!thread_mlfqs) {
+		if(!list_empty(&curr->donor_list)) donor_release(lock);
+		if(list_empty(&curr->donor_list)) {
+			curr->priority = curr->original_priority;
+		} else {
+			/* TODO : 그냥 max 가져올 거면 list_insert order 쓰는 overhead 없애기
+			아니면 sort 후 pop_front 로 바꾸기 */
+			curr->priority = list_entry(list_max(&curr->donor_list, prior_donor_elem, NULL), struct thread, donor_elem)->priority;
+	}
 	}
 
 	sema_up (&lock->semaphore);
