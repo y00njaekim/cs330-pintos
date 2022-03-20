@@ -98,6 +98,8 @@ struct thread {
 	struct list_elem donor_elem;
 	struct lock *waiting_lock;
 
+	struct list_elem thread_elem; /* It is in thread_list for tracking all the existing thread */
+	
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem; /* List element. It is in ready_list / waiting_list of lock / sleep_list , and so on. */
 
@@ -148,7 +150,12 @@ void threads_wake_up(int64_t tick);
 int thread_get_priority (void);
 void thread_set_priority (int);
 
-int thread_get_nice (void);
+void priority_update_all(void);
+void rcpu_increment(void);
+void load_avg_update(void);
+void rcpu_update_all(void);
+
+int thread_get_nice(void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
