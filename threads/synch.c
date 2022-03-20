@@ -129,6 +129,7 @@ sema_try_down (struct semaphore *sema) {
    This function may be called from an interrupt handler. */
 void
 sema_up (struct semaphore *sema) {
+	// TODO : list_sort 필요성 이해
 	bool is_unblocked = false;
 	enum intr_level old_level;
 
@@ -144,7 +145,7 @@ sema_up (struct semaphore *sema) {
 	sema->value++;
 	intr_set_level (old_level);
 
-	/* TODO (DONE) : if 문 안에다가 thread_yield() 넣었을 때 에러 발생
+	/* DONE : if 문 안에다가 thread_yield() 넣었을 때 에러 발생
 	   -> 의사결정 후 if 문 안에 넣는 판단 시 error 해결 */
 	if(is_unblocked) thread_yield();
 		
@@ -211,6 +212,7 @@ lock_init (struct lock *lock) {
 /* Customized. */
 void
 donate(struct lock *lock) {
+	// TODO : intr_disable() 필요성 의사 결정
 	enum intr_level old_level;
 	old_level = intr_disable ();
 
@@ -311,6 +313,7 @@ lock_try_acquire (struct lock *lock) {
 /* Customized */
 void
 donor_release (struct lock *lock) {
+	// TODO : intr_disable() 필요성 의사 결정
 	struct thread *grantor = thread_current();
 
 	enum intr_level old_level;
@@ -345,6 +348,7 @@ donor_release (struct lock *lock) {
    handler. */
 void
 lock_release (struct lock *lock) {
+	// TODO : sema_up 위에 코드 작성 or sema_up 아래 코드 작성 의사 결정 이유 파악
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
 
@@ -356,7 +360,8 @@ lock_release (struct lock *lock) {
 	if(list_empty(&curr->donor_list)) {
 		curr->priority = curr->original_priority;
 	} else {
-		// TODO (DONE) : 그냥 max 가져오기
+		/* TODO : 그냥 max 가져올 거면 list_insert order 쓰는 overhead 없애기
+		아니면 sort 후 pop_front 로 바꾸기 */
 		curr->priority = list_entry(list_max(&curr->donor_list, prior_donor_elem, NULL), struct thread, donor_elem)->priority;
 	}
 
@@ -450,6 +455,7 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	if (!list_empty (&cond->waiters)) {
+		// TODO : list_sort 필요성 이해
 		list_sort(&cond->waiters, prior_sema_elem, NULL);
 		sema_up(&list_entry(list_pop_front(&cond->waiters),
 												struct semaphore_elem, elem)

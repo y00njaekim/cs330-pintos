@@ -418,7 +418,9 @@ thread_set_priority (int new_priority) {
 	if(list_empty(&curr->donor_list)) {
 		curr->priority = curr->original_priority;
 	} else {
-		// TODO (DONE) : 그냥 max 가져오기
+		// DONE : 그냥 max 가져오기
+		/* TODO : 그냥 max 가져올 거면 list_insert order 쓰는 overhead 없애기
+		   아니면 sort 후 pop_front 로 바꾸기 */
 		curr->priority = list_entry(list_max(&curr->donor_list, prior_donor_elem, NULL), struct thread, donor_elem)->priority;
 	}
 
