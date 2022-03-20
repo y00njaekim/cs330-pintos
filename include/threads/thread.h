@@ -92,8 +92,14 @@ struct thread {
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
 
+	/* Customized */
+	int original_priority;
+	struct list donor_list;
+	struct list_elem donor_elem;
+	struct lock *waiting_lock;
+
 	/* Shared between thread.c and synch.c. */
-	struct list_elem elem;              /* List element. */
+	struct list_elem elem; /* List element. It is in ready_list / waiting_list of lock / sleep_list , and so on. */
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
@@ -128,6 +134,7 @@ tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
 void thread_block (void);
 void thread_unblock (struct thread *);
+void list_insert_ordered_ready_list(struct list_elem *); /* Customized */
 
 struct thread *thread_current (void);
 tid_t thread_tid (void);

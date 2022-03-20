@@ -32,6 +32,31 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+// TODO : list.c 에 선언해서 import 하여 사용하기
+
+/* Cusomized.
+   Returns true if priority of thread A is bigger than thread B, false
+   otherwise. */
+static bool
+prior_elem (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED) 
+{
+  const struct thread *a = list_entry (a_, struct thread, elem);
+  const struct thread *b = list_entry (b_, struct thread, elem);
+
+  return a->priority > b->priority;
+}
+
+static bool
+prior_donor_elem (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED) 
+{
+  const struct thread *a = list_entry (a_, struct thread, donor_elem);
+  const struct thread *b = list_entry (b_, struct thread, donor_elem);
+
+  return a->priority > b->priority;
+}
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -66,7 +91,7 @@ sema_down (struct semaphore *sema) {
 
 	old_level = intr_disable ();
 	while (sema->value == 0) {
-		list_push_back (&sema->waiters, &thread_current ()->elem);
+		list_insert_ordered (&sema->waiters, &thread_current ()->elem, prior_elem, NULL);
 		thread_block ();
 	}
 	sema->value--;
@@ -104,16 +129,26 @@ sema_try_down (struct semaphore *sema) {
    This function may be called from an interrupt handler. */
 void
 sema_up (struct semaphore *sema) {
+	// TODO : list_sort 필요성 이해
+	bool is_unblocked = false;
 	enum intr_level old_level;
 
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
-	if (!list_empty (&sema->waiters))
-		thread_unblock (list_entry (list_pop_front (&sema->waiters),
-					struct thread, elem));
+	if (!list_empty (&sema->waiters)) {
+		list_sort(&sema->waiters, prior_elem, NULL);
+		thread_unblock(list_entry(list_pop_front(&sema->waiters),
+															struct thread, elem));
+		is_unblocked = true;
+	}
 	sema->value++;
 	intr_set_level (old_level);
+
+	/* DONE : if 문 안에다가 thread_yield() 넣었을 때 에러 발생
+	   -> 의사결정 후 if 문 안에 넣는 판단 시 error 해결 */
+	if(is_unblocked) thread_yield();
+		
 }
 
 static void sema_test_helper (void *sema_);
@@ -174,6 +209,56 @@ lock_init (struct lock *lock) {
 	sema_init (&lock->semaphore, 1);
 }
 
+/* Customized. */
+void
+donate(struct lock *lock) {
+	// TODO : intr_disable() 필요성 의사 결정
+	enum intr_level old_level;
+	old_level = intr_disable ();
+
+	struct thread *donor = thread_current();
+
+	ASSERT (lock != NULL);
+
+	struct lock *relative_lock = lock;
+	struct thread *relative_holder = relative_lock->holder;
+
+	list_insert_ordered (&relative_holder->donor_list, &donor->donor_elem, prior_donor_elem, NULL);
+	
+	relative_holder->priority = (relative_holder->priority < donor->priority) ? donor->priority : relative_holder->priority;
+	relative_lock = relative_holder->waiting_lock;
+	list_remove(&relative_holder->elem);
+	if (relative_lock == NULL)
+	{
+		// Ready List 에 있다고 확신할 수 있나?
+		list_insert_ordered_ready_list(&relative_holder->elem);
+	}
+	else
+	{
+		list_insert_ordered (&(relative_lock->semaphore.waiters), &relative_holder->elem, prior_elem, NULL);
+	}
+
+	while (relative_lock != NULL) {
+		// QUESTION : relative holder 가 자기 자신일 수도 있나?
+		relative_holder = relative_lock->holder;
+
+		relative_holder->priority = (relative_holder->priority < donor->priority) ? donor->priority : relative_holder->priority;
+		relative_lock = relative_holder->waiting_lock;
+		list_remove(&relative_holder->elem);
+		if (relative_lock == NULL)
+		{
+			// Ready List 에 있다고 확신할 수 있나?
+			list_insert_ordered_ready_list(&relative_holder->elem);
+		}
+		else
+		{
+			list_insert_ordered (&(relative_lock->semaphore.waiters), &relative_holder->elem, prior_elem, NULL);
+		}
+	}
+
+	intr_set_level (old_level);
+}
+
 /* Acquires LOCK, sleeping until it becomes available if
    necessary.  The lock must not already be held by the current
    thread.
@@ -184,12 +269,26 @@ lock_init (struct lock *lock) {
    we need to sleep. */
 void
 lock_acquire (struct lock *lock) {
+
+	// QUESTION : intr_disable 안해도 돼?
+
 	ASSERT (lock != NULL);
 	ASSERT (!intr_context ());
 	ASSERT (!lock_held_by_current_thread (lock));
 
+	struct thread *curr = thread_current();
+	
+	if (lock->holder != NULL)
+	{
+		curr->waiting_lock = lock;
+		donate(lock);
+	}
+
+
 	sema_down (&lock->semaphore);
-	lock->holder = thread_current ();
+
+	curr->waiting_lock = NULL;
+	lock->holder = curr;
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -211,6 +310,36 @@ lock_try_acquire (struct lock *lock) {
 	return success;
 }
 
+/* Customized */
+void
+donor_release (struct lock *lock) {
+	// TODO : intr_disable() 필요성 의사 결정
+	struct thread *grantor = thread_current();
+
+	enum intr_level old_level;
+	old_level = intr_disable ();
+	
+	struct thread *donor;
+	struct list_elem *donor_list_elem;
+
+	struct list_elem *need_to_delete = NULL;
+	for (donor_list_elem = list_begin(&grantor->donor_list); donor_list_elem != list_end(&grantor->donor_list); donor_list_elem = list_next (donor_list_elem)) {
+		if(need_to_delete != NULL) {
+			list_remove(need_to_delete);
+			need_to_delete = NULL;
+		}
+
+		donor = list_entry(donor_list_elem, struct thread, donor_elem);
+
+		if(donor->waiting_lock == lock)
+			need_to_delete = &donor->donor_elem;
+	}
+
+	if(need_to_delete != NULL) 
+		list_remove(need_to_delete);
+	intr_set_level (old_level);
+}
+
 /* Releases LOCK, which must be owned by the current thread.
    This is lock_release function.
 
@@ -219,10 +348,23 @@ lock_try_acquire (struct lock *lock) {
    handler. */
 void
 lock_release (struct lock *lock) {
+	// TODO : sema_up 위에 코드 작성 or sema_up 아래 코드 작성 의사 결정 이유 파악
 	ASSERT (lock != NULL);
 	ASSERT (lock_held_by_current_thread (lock));
 
+	struct thread *curr = thread_current();
+
 	lock->holder = NULL;
+
+	if(!list_empty(&curr->donor_list)) donor_release(lock);
+	if(list_empty(&curr->donor_list)) {
+		curr->priority = curr->original_priority;
+	} else {
+		/* TODO : 그냥 max 가져올 거면 list_insert order 쓰는 overhead 없애기
+		아니면 sort 후 pop_front 로 바꾸기 */
+		curr->priority = list_entry(list_max(&curr->donor_list, prior_donor_elem, NULL), struct thread, donor_elem)->priority;
+	}
+
 	sema_up (&lock->semaphore);
 }
 
@@ -241,6 +383,16 @@ struct semaphore_elem {
 	struct list_elem elem;              /* List element. */
 	struct semaphore semaphore;         /* This semaphore. */
 };
+
+static bool
+prior_sema_elem (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED) 
+{
+  const struct semaphore_elem *a = list_entry (a_, struct semaphore_elem, elem);
+  const struct semaphore_elem *b = list_entry (b_, struct semaphore_elem, elem);
+
+	return list_entry(list_begin(&a->semaphore.waiters), struct thread, elem)->priority > list_entry(list_begin(&b->semaphore.waiters), struct thread, elem)->priority;
+}
 
 /* Initializes condition variable COND.  A condition variable
    allows one piece of code to signal a condition and cooperating
@@ -282,7 +434,7 @@ cond_wait (struct condition *cond, struct lock *lock) {
 	ASSERT (lock_held_by_current_thread (lock));
 
 	sema_init (&waiter.semaphore, 0);
-	list_push_back (&cond->waiters, &waiter.elem);
+	list_insert_ordered(&cond->waiters, &waiter.elem, prior_sema_elem, NULL);
 	lock_release (lock);
 	sema_down (&waiter.semaphore);
 	lock_acquire (lock);
@@ -302,9 +454,13 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED) {
 	ASSERT (!intr_context ());
 	ASSERT (lock_held_by_current_thread (lock));
 
-	if (!list_empty (&cond->waiters))
-		sema_up (&list_entry (list_pop_front (&cond->waiters),
-					struct semaphore_elem, elem)->semaphore);
+	if (!list_empty (&cond->waiters)) {
+		// TODO : list_sort 필요성 이해
+		list_sort(&cond->waiters, prior_sema_elem, NULL);
+		sema_up(&list_entry(list_pop_front(&cond->waiters),
+												struct semaphore_elem, elem)
+								 ->semaphore);
+	}
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by

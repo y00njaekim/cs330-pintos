@@ -84,6 +84,31 @@ static tid_t allocate_tid (void);
 // setup temporal gdt first.
 static uint64_t gdt[3] = { 0, 0x00af9a000000ffff, 0x00cf92000000ffff };
 
+// TODO : list.c 에 선언해서 import 하여 사용하기
+
+/* Cusomized.
+   Returns true if priority of thread A is bigger than thread B, false
+   otherwise. */
+static bool
+prior_elem (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED) 
+{
+  const struct thread *a = list_entry (a_, struct thread, elem);
+  const struct thread *b = list_entry (b_, struct thread, elem);
+
+  return a->priority > b->priority;
+}
+
+static bool
+prior_donor_elem (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED) 
+{
+  const struct thread *a = list_entry (a_, struct thread, donor_elem);
+  const struct thread *b = list_entry (b_, struct thread, donor_elem);
+
+  return a->priority > b->priority;
+}
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -212,6 +237,7 @@ thread_create (const char *name, int priority,
 
 	/* Add to run queue. */
 	thread_unblock (t);
+	thread_yield();
 
 	return tid;
 }
@@ -246,9 +272,14 @@ thread_unblock (struct thread *t) {
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
+	list_insert_ordered (&ready_list, &t->elem, prior_elem, NULL);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
+}
+
+void
+list_insert_ordered_ready_list(struct list_elem *elem) {
+	list_insert_ordered (&ready_list, elem, prior_elem, NULL);
 }
 
 /* Returns the name of the running thread. */
@@ -302,15 +333,17 @@ thread_exit (void) {
    may be scheduled again immediately at the scheduler's whim. */
 void
 thread_yield (void) {
-	struct thread *curr = thread_current ();
+	struct thread *curr = thread_current();
 	enum intr_level old_level;
 
 	ASSERT (!intr_context ());
 
 	old_level = intr_disable ();
+
 	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
+		list_insert_ordered (&ready_list, &curr->elem, prior_elem, NULL);
 	do_schedule (THREAD_READY);
+
 	intr_set_level (old_level);
 }
 
@@ -369,16 +402,38 @@ threads_wake_up(int64_t ticks) {
 	}
 }
 
-/* Sets the current thread's priority to NEW_PRIORITY. */
+/* Customized.
+   Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
+
+	// QUESTION : interrupt enable 이 맞을까 ?
+
+	ASSERT (PRI_MIN <= new_priority && new_priority <= PRI_MAX);
+
+	struct thread *curr = thread_current();
+
+	curr->original_priority = new_priority;
+
+	if(list_empty(&curr->donor_list)) {
+		curr->priority = curr->original_priority;
+	} else {
+		// DONE : 그냥 max 가져오기
+		/* TODO : 그냥 max 가져올 거면 list_insert order 쓰는 overhead 없애기
+		   아니면 sort 후 pop_front 로 바꾸기 */
+		curr->priority = list_entry(list_max(&curr->donor_list, prior_donor_elem, NULL), struct thread, donor_elem)->priority;
+	}
+
+	thread_yield();
 }
 
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void) {
-	return thread_current ()->priority;
+
+	// QUESTION : interrupt enable 이 맞을까 ?
+	int ret = thread_current()->priority;
+	return ret;
 }
 
 /* Sets the current thread's nice value to NICE. */
@@ -470,6 +525,11 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
+	
+	/* Customized */
+	t->original_priority = priority;
+	t->waiting_lock = NULL;
+	list_init(&t->donor_list);
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

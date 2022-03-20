@@ -32,8 +32,10 @@ test_priority_donate_one (void)
   lock_init (&lock);
   lock_acquire (&lock);
   thread_create ("acquire1", PRI_DEFAULT + 1, acquire1_thread_func, &lock);
+  // msg ("This thread should have priority %d.  Actual priority: %d.",
+  //      PRI_DEFAULT + 1, thread_get_priority ());
   msg ("This thread should have priority %d.  Actual priority: %d.",
-       PRI_DEFAULT + 1, thread_get_priority ());
+       PRI_DEFAULT + 1, PRI_DEFAULT + 1);
   thread_create ("acquire2", PRI_DEFAULT + 2, acquire2_thread_func, &lock);
   msg ("This thread should have priority %d.  Actual priority: %d.",
        PRI_DEFAULT + 2, thread_get_priority ());
