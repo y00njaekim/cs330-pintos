@@ -1,4 +1,5 @@
 #include "threads/thread.h"
+#include "threads/fixed-point.h"
 #include <debug.h>
 #include <stddef.h>
 #include <random.h>
@@ -58,6 +59,7 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
+static int load_avg;
 
 static void kernel_thread (thread_func *, void *aux);
 
@@ -440,28 +442,67 @@ thread_get_priority (void) {
 void
 thread_set_nice (int nice UNUSED) {
 	/* TODO: Your implementation goes here */
+	enum intr_level old_level;
+	old_level = intr_disable ();
+	struct thread *curr = thread_current();
+	curr->nice = nice;
+	eval_priority(curr);
+	intr_set_level (old_level);
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) {
 	/* TODO: Your implementation goes here */
-	return 0;
+	enum intr_level old_level;
+	old_level = intr_disable ();
+	struct thread *curr = thread_current();
+	int got_nice = curr->nice;
+	intr_set_level (old_level);
+	return got_nice;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) {
 	/* TODO: Your implementation goes here */
-	return 0;
+	enum intr_level old_level;
+	old_level = intr_disable ();
+	int got_load_avg = xtoi_round(mulxn(load_avg, 100));
+	intr_set_level (old_level);
+	return got_load_avg;
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) {
 	/* TODO: Your implementation goes here */
-	return 0;
+	enum intr_level old_level;
+	old_level = intr_disable ();
+	struct thread *curr = thread_current();
+	int got_recent_cpu = xtoi_round(mulxn(curr->recent_cpu, 100));
+	intr_set_level (old_level);
+	return got_recent_cpu;
 }
+
+/* Evaluates priority using the given formula. */
+int
+eval_priority (struct thread *t) {
+	return xtoi(addxn(PRI_MAX - t->nice * 2, divxn(t->recent_cpu, -4)));
+}
+
+/* Evaluates recent_cpu using the given formula. */
+int
+eval_recent_cpu (struct thread *t) {
+	return addxn(mulxy(divxy(mulxn(load_avg, 2), addxn(mulxn(load_avg, 2), 1)), t->recent_cpu), t->nice);
+}
+
+/* Evaluates load_avg using the given formula. */
+int 
+eval_load_avg (int ready_threads) {
+	return addxy(mulxy(divxy(itox(59), itox(60)), load_avg), mulxn(divxy(itox(1), itox(60)), ready_threads));
+}
+
 
 /* Idle thread.  Executes when no other thread is ready to run.
 
@@ -530,6 +571,9 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->original_priority = priority;
 	t->waiting_lock = NULL;
 	list_init(&t->donor_list);
+
+	t->nice = NICE_DEFAULT;
+	t->recent_cpu = RECENT_CPU_DEFAULT;
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
