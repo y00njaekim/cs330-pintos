@@ -1,10 +1,12 @@
 #include <stdio.h>
 #include <stdint.h>
+
 #define p 17
 #define q 14
-#define f 1 << q
+int f = 1 << q;
 
-int itox (int n) {
+int itox(int n)
+{
 	return n * f;
 }
 

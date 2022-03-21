@@ -217,6 +217,9 @@ thread_print_stats (void) {
 tid_t
 thread_create (const char *name, int priority,
 		thread_func *function, void *aux) {
+
+	if(thread_mlfqs)
+		priority = PRI_DEFAULT;
 	struct thread *t;
 	tid_t tid;
 
@@ -398,9 +401,17 @@ thread_sleep (int64_t tick) {
 void
 threads_wake_up(int64_t ticks) {
 	if(!list_empty (&sleep_list)) {
-		struct list_elem *front = list_front (&sleep_list);
-		struct thread *next = list_entry(front, struct thread, elem);
-		while(next->wake_up_tick <= ticks) {
+		struct list_elem *front;
+		struct thread *next = NULL;
+
+		front = list_front(&sleep_list);
+		if(front != NULL)
+			next = list_entry(front, struct thread, elem);
+		else
+			next = NULL;
+
+		while (next != NULL && next->wake_up_tick <= ticks)
+		{
 			list_remove (front);
 			thread_unblock(next);
 
@@ -418,6 +429,9 @@ threads_wake_up(int64_t ticks) {
    Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
+
+	if(thread_mlfqs)
+		return;
 
 	// QUESTION : interrupt enable 이 맞을까 ?
 
@@ -484,13 +498,26 @@ priority_update_all() {
 void
 rcpu_increment() {
 	struct thread *curr = thread_current ();
+
+	/* DEBUG */
+	printf("in rcpu_incr\n");
+	printf("@@@@ Thread is %d\n", curr->tid);
+
 	if (curr != idle_thread)
-		curr->recent_cpu++;
+		curr->recent_cpu = addxn(curr->recent_cpu, 1);
+
+	/* DEBUG */
+	printf("Therefore current rcpu is %d\n", xtoi_round(curr->recent_cpu));
+
 }
 
 void
 load_avg_update() {
 	struct thread *curr = thread_current();
+
+	/* DEBUG */
+	printf("in load_avg_update\n");
+	printf("@@@@ Thread is %d\n", curr->tid);
 
 	// TODO : list_size return 형은 size 이기 때문에 조정 필요할 수도
 	int ready_threads = (curr == idle_thread) ? list_size(&ready_list) : list_size(&ready_list) + 1;
@@ -500,6 +527,10 @@ load_avg_update() {
 void
 rcpu_update_all() {
 	struct thread *curr = thread_current ();
+
+	/* DEBUG */
+	printf("in rcpu_update_all\n");
+	printf("@@@@ Thread is %d\n", curr->tid);
 
 	struct thread *t;
 	struct list_elem *t_elem;
@@ -513,14 +544,24 @@ rcpu_update_all() {
 
 /* Sets the current thread's nice value to NICE. */
 void
-thread_set_nice (int nice UNUSED) {
+thread_set_nice (int nice) {
 	/* TODO: Your implementation goes here */
 	enum intr_level old_level;
 	old_level = intr_disable ();
 	struct thread *curr = thread_current();
+
+	/* DEBUG */
+	printf("in thread_set_nice\n");
+	printf("@@@@ Thread is %d\n", curr->tid);
+
 	curr->nice = nice;
-	eval_priority(curr);
-	intr_set_level (old_level);
+
+	/* TODO : nice 가 업데이트 되었으니 recent_cpu 도 업데이트 해야하나? 
+	curr->recent_cpu = eval_recent_cpu(curr); */
+
+	curr->priority = eval_priority(curr);
+	thread_yield();
+	intr_set_level(old_level);
 }
 
 /* Returns the current thread's nice value. */
@@ -561,12 +602,40 @@ thread_get_recent_cpu (void) {
 /* Evaluates priority using the given formula. */
 int
 eval_priority (struct thread *t) {
-	return xtoi(addxn(PRI_MAX - t->nice * 2, divxn(t->recent_cpu, -4)));
+
+	/* DEBUG */
+	printf("in eval_priority\n");
+	printf("@@@@ Thread is %d\n", t->tid);
+
+	int priority = xtoi_round(subxn(subxy(itox(PRI_MAX), divxn(t->recent_cpu, 4)), 2 * t->nice));
+
+	/* DEBUG */
+	printf("load_avg is %d, nice is %d, rcpu is %d, therefore priority is %d\n",
+						xtoi_round(load_avg),
+						t->nice,
+						xtoi_round(t->recent_cpu),
+						priority);
+
+	ASSERT(PRI_MIN <= priority && priority <= PRI_MAX);
+	return priority;
 }
 
 /* Evaluates recent_cpu using the given formula. */
 int
 eval_recent_cpu (struct thread *t) {
+
+	/* DEBUG */
+	printf("in eval_rcpu\n");
+	printf("@@@@ Thread is %d\n", t->tid);
+	printf("curr rcpu is %d\n", xtoi_round(t->recent_cpu));
+	int rcpu = xtoi(addxn(mulxy(divxy(mulxn(load_avg, 2), addxn(mulxn(load_avg, 2), 1)), t->recent_cpu), t->nice));
+	printf("load_avg is %d, nice is %d, rcpu is %d, therefore rcpu is %d\n",
+						xtoi_round(load_avg),
+						t->nice,
+						xtoi_round(t->recent_cpu),
+						rcpu);
+	/* DEBUG END*/
+
 	return addxn(mulxy(divxy(mulxn(load_avg, 2), addxn(mulxn(load_avg, 2), 1)), t->recent_cpu), t->nice);
 }
 
@@ -772,7 +841,6 @@ do_schedule(int status) {
 			list_entry (list_pop_front (&destruction_req), struct thread, elem);
 		list_remove(&victim->thread_elem);
 		palloc_free_page(victim);
-
 	}
 	thread_current ()->status = status;
 	schedule ();
