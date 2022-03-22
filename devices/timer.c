@@ -147,8 +147,11 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 		if(timer_ticks() % TIMER_FREQ == 0) {
 			load_avg_update();
 			rcpu_update_all();
+			debug_all_list_of_thread();
+			debug_list_ready_list();
+			debug_mlfq_status();
 		}
-		
+
 		// It is executed when thread_ticks >= TIME_SLICE
 		if(timer_ticks() % 4 == 0) {
 			priority_update_all();

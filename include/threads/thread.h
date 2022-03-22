@@ -173,5 +173,7 @@ void do_iret (struct intr_frame *tf);
 
 // DEBUG
 void debug_list_ready_list(void);
+void debug_mlfq_status(void);
+void debug_all_list_of_thread(void);
 
 #endif /* threads/thread.h */
