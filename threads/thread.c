@@ -559,6 +559,7 @@ load_avg_update() {
 	int ready_threads = (curr == idle_thread) ? list_size(&ready_list) : list_size(&ready_list) + 1;
 
 	load_avg = eval_load_avg(ready_threads);
+	if (load_avg < 0) load_avg = 0;
 
 	if(debug_mode)
 		printf("Since ready_treads is %d, load_avg is %d\n", ready_threads, load_avg);
@@ -588,6 +589,8 @@ rcpu_update_all() {
 			else {
 				t->recent_cpu = eval_recent_cpu(t);
 			}
+			t->priority = eval_priority(t);
+		
 		}
 	}
 };
@@ -611,10 +614,9 @@ thread_set_nice (int nice) {
 	/* TODO : nice 가 업데이트 되었으니 recent_cpu 도 업데이트 해야하나? 
 	curr->recent_cpu = eval_recent_cpu(curr); */
 
-	curr->priority = eval_priority(curr);
+	if(curr != idle_thread) curr->priority = eval_priority(curr);
 
 	debug_list_ready_list();
-
 	thread_yield();
 	intr_set_level(old_level);
 
@@ -669,7 +671,7 @@ eval_priority (struct thread *t) {
 		printf("@@@@ Thread is %d\n", t->tid);
 	}
 
-	int priority = xtoi_round(subxn(subxy(itox(PRI_MAX), divxn(t->recent_cpu, 4)), 2 * t->nice));
+	int priority = ((PRI_MAX * (1 << 14)) - ((t->recent_cpu) / 4) - ((t->nice * 2) * (1 << 14))) >> 14;
 	if(priority > PRI_MAX) priority = PRI_MAX;
 	if(priority < PRI_MIN) priority = PRI_MIN;
 
@@ -710,7 +712,7 @@ eval_recent_cpu (struct thread *t) {
 	/* DEBUG END*/
 	}
 
-	return addxn(mulxy(divxy(mulxn(load_avg, 2), addxn(mulxn(load_avg, 2), 1)), t->recent_cpu), t->nice);
+	return ((int64_t)((int64_t)2 * load_avg) * (1 << 14) / (2 * load_avg + ( 1 * (1 << 14)))) * t->recent_cpu / (1 << 14) + (t->nice) * (1 << 14);
 }
 
 /* Evaluates load_avg using the given formula. */
@@ -790,9 +792,11 @@ init_thread (struct thread *t, const char *name, int priority) {
 
 	t->nice = NICE_DEFAULT;
 	t->recent_cpu = RECENT_CPU_DEFAULT;
-
+	
+	enum intr_level old_level = intr_disable();
 	// QUESTION : thread_create 에서 idle_thread 만들 일이 있으려나 ? 있을듯
-	list_push_back(&thread_list, &t->thread_elem);
+	list_insert_ordered(&thread_list, &t->thread_elem, prior_elem, NULL);
+	intr_set_level(old_level);
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

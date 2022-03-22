@@ -144,7 +144,7 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 
 	if(thread_mlfqs) {
 		rcpu_increment();
-		if(timer_ticks() % TIMER_FREQ == 0) {
+		if(ticks % TIMER_FREQ == 0) {
 			load_avg_update();
 			rcpu_update_all();
 			debug_all_list_of_thread();
@@ -153,7 +153,7 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 		}
 
 		// It is executed when thread_ticks >= TIME_SLICE
-		if(timer_ticks() % 4 == 0) {
+		if(ticks % 4 == 0) {
 			priority_update_all();
 		}
 	}
