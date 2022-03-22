@@ -512,7 +512,7 @@ priority_update_all() {
 					list_remove(&t->elem);
 					list_insert_ordered(&ready_list, &t->elem, prior_elem, NULL);
 				}
-				else
+				else if(waiting_lock != NULL)
 				{
 					list_remove(&t->elem);
 					list_insert_ordered (&(waiting_lock->semaphore.waiters), &t->elem, prior_elem, NULL);
