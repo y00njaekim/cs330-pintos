@@ -138,6 +138,7 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	// TODO : interrupt 차단되어 있겠지?
 	ticks++;
+	if(debug_mode) printf("\n\t\t\t tick!!! -- %d\n", ticks);
 	threads_wake_up(ticks);
 	thread_tick ();
 
@@ -149,8 +150,11 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 		}
 		
 		// It is executed when thread_ticks >= TIME_SLICE
-		priority_update_all();
+		if(timer_ticks() % 4 == 0) {
+			priority_update_all();
+		}
 	}
+	if(debug_mode) printf("\t\t\t tock!!! -- %d\n\n", ticks);
 }
 
 
