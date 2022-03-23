@@ -139,12 +139,12 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 	// TODO : interrupt 차단되어 있겠지?
 	ticks++;
 	if(debug_mode) printf("\n\t\t\t tick!!! -- %d\n", ticks);
+	if(thread_mlfqs) rcpu_increment();
 	threads_wake_up(ticks);
-	thread_tick ();
 
 	if(thread_mlfqs) {
-		rcpu_increment();
-		if(ticks % TIMER_FREQ == 0) {
+
+		if(timer_ticks() % TIMER_FREQ == 0) {
 			load_avg_update();
 			rcpu_update_all();
 			debug_all_list_of_thread();
@@ -153,11 +153,12 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 		}
 
 		// It is executed when thread_ticks >= TIME_SLICE
-		if(ticks % 4 == 0) {
+		if(timer_ticks() % 4 == 0) {
 			priority_update_all();
 		}
 	}
 	if(debug_mode) printf("\t\t\t tock!!! -- %d\n\n", ticks);
+	thread_tick ();
 }
 
 
