@@ -131,6 +131,9 @@ struct thread {
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
 
+/* Customized */
+extern bool debug_mode;
+
 void thread_init (void);
 void thread_start (void);
 
@@ -167,5 +170,10 @@ int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
 void do_iret (struct intr_frame *tf);
+
+// DEBUG
+void debug_list_ready_list(void);
+void debug_mlfq_status(void);
+void debug_all_list_of_thread(void);
 
 #endif /* threads/thread.h */
