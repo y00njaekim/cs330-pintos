@@ -57,6 +57,9 @@ prior_donor_elem (const struct list_elem *a_, const struct list_elem *b_,
   return a->priority > b->priority;
 }
 
+void donor_release (struct lock *lock);
+void donate(struct lock *lock);
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
