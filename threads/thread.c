@@ -1,4 +1,5 @@
 #include "threads/thread.h"
+#include "threads/fixed-point.h"
 #include <debug.h>
 #include <stddef.h>
 #include <random.h>
@@ -45,6 +46,10 @@ static struct lock tid_lock;
 /* Thread destruction requests */
 static struct list destruction_req;
 
+/* Customized
+   Tracking all the existing threads */
+static struct list thread_list;
+
 /* Statistics. */
 static long long idle_ticks;    /* # of timer ticks spent idle. */
 static long long kernel_ticks;  /* # of timer ticks in kernel threads. */
@@ -58,6 +63,11 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
+
+/* Customized*/
+bool debug_mode;
+
+static int load_avg;
 
 static void kernel_thread (thread_func *, void *aux);
 
@@ -109,6 +119,16 @@ prior_donor_elem (const struct list_elem *a_, const struct list_elem *b_,
   return a->priority > b->priority;
 }
 
+static bool
+prior_thread_elem (const struct list_elem *a_, const struct list_elem *b_,
+            void *aux UNUSED) 
+{
+  const struct thread *a = list_entry (a_, struct thread, thread_elem);
+  const struct thread *b = list_entry (b_, struct thread, thread_elem);
+
+  return a->priority > b->priority;
+}
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -140,12 +160,15 @@ thread_init (void) {
 	list_init (&ready_list);
 	list_init (&sleep_list);
 	list_init (&destruction_req);
+	list_init (&thread_list);
 
 	/* Set up a thread structure for the running thread. */
 	initial_thread = running_thread ();
 	init_thread (initial_thread, "main", PRI_DEFAULT);
 	initial_thread->status = THREAD_RUNNING;
 	initial_thread->tid = allocate_tid ();
+	initial_thread->nice = 0;
+	initial_thread->recent_cpu = 0;
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -210,6 +233,9 @@ thread_print_stats (void) {
 tid_t
 thread_create (const char *name, int priority,
 		thread_func *function, void *aux) {
+
+	if(thread_mlfqs)
+		priority = PRI_DEFAULT;
 	struct thread *t;
 	tid_t tid;
 
@@ -237,6 +263,9 @@ thread_create (const char *name, int priority,
 
 	/* Add to run queue. */
 	thread_unblock (t);
+
+	/* Customized */
+
 	thread_yield();
 
 	return tid;
@@ -386,9 +415,17 @@ thread_sleep (int64_t tick) {
 void
 threads_wake_up(int64_t ticks) {
 	if(!list_empty (&sleep_list)) {
-		struct list_elem *front = list_front (&sleep_list);
-		struct thread *next = list_entry(front, struct thread, elem);
-		while(next->wake_up_tick <= ticks) {
+		struct list_elem *front;
+		struct thread *next = NULL;
+
+		front = list_front(&sleep_list);
+		if(front != NULL)
+			next = list_entry(front, struct thread, elem);
+		else
+			next = NULL;
+
+		while (next != NULL && next->wake_up_tick <= ticks)
+		{
 			list_remove (front);
 			thread_unblock(next);
 
@@ -406,6 +443,9 @@ threads_wake_up(int64_t ticks) {
    Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
+
+	if(thread_mlfqs)
+		return;
 
 	// QUESTION : interrupt enable 이 맞을까 ?
 
@@ -436,32 +476,158 @@ thread_get_priority (void) {
 	return ret;
 }
 
+/* Customized.
+	 For mlfqs */
+
+void
+priority_update_all() {
+	struct thread *curr = thread_current ();
+	struct lock *waiting_lock;
+
+	struct thread *t;
+	struct list_elem *t_elem;
+	for (t_elem = list_begin(&thread_list); t_elem != list_end(&thread_list); t_elem = list_next(t_elem))
+	{
+
+
+		t = list_entry(t_elem, struct thread, thread_elem);
+		// QUESTION : idle_thread 체크 필요하려나? 일단 필요하다고 생각 - init_thread 에서 생성한 특정 thread 를 idle 로 지목한다고 이해중
+		if(t != idle_thread) {
+			t->priority = eval_priority(t);
+
+			/* sleep_list 에 있는 친구들 제외 해주어야 함. 현재 실행중인 스레드도 제외 */
+
+			/* queue 에 넣었다가 빼면서 정렬해주는 과정
+			   problem -> 동일 우선순위 가지는 쓰레드
+			if(t != curr) {
+				waiting_lock = t->waiting_lock;
+				if (waiting_lock == NULL && t->status == THREAD_READY)
+				{
+					list_remove(&t->elem);
+					list_insert_ordered(&ready_list, &t->elem, prior_elem, NULL);
+				}
+				else if(waiting_lock != NULL)
+				{
+					list_remove(&t->elem);
+					list_insert_ordered (&(waiting_lock->semaphore.waiters), &t->elem, prior_elem, NULL);
+				}
+			} */
+		}
+	}
+}
+
+void
+rcpu_increment() {
+	struct thread *curr = thread_current ();
+
+	if (curr != idle_thread)
+		curr->recent_cpu = addxn(curr->recent_cpu, 1);
+}
+
+void
+load_avg_update() {
+	struct thread *curr = thread_current();
+
+	// TODO : list_size return 형은 size 이기 때문에 조정 필요할 수도
+	int ready_threads = (curr == idle_thread) ? list_size(&ready_list) : list_size(&ready_list) + 1;
+	load_avg = eval_load_avg(ready_threads);
+}
+
+void
+rcpu_update_all() {
+	struct thread *t;
+	struct list_elem *t_elem;
+
+	for (t_elem = list_begin(&thread_list); t_elem != list_end(&thread_list); t_elem = list_next (t_elem)) {
+		t = list_entry(t_elem, struct thread, thread_elem);
+		// QUESTION : idle_thread 체크 필요하려나? 일단 필요하다고 생각 - init_thread 에서 생성한 특정 thread 를 idle 로 지목한다고 이해중
+		if(t != idle_thread) {
+			t->recent_cpu = eval_recent_cpu(t);
+		}
+	}
+};
+
 /* Sets the current thread's nice value to NICE. */
 void
-thread_set_nice (int nice UNUSED) {
-	/* TODO: Your implementation goes here */
+thread_set_nice (int nice) {
+	enum intr_level old_level;
+	old_level = intr_disable ();
+	struct thread *curr = thread_current();
+
+	curr->nice = nice;
+
+	/* TODO : nice 가 업데이트 되었으니 recent_cpu 도 업데이트 해야하나? */
+	curr->recent_cpu = eval_recent_cpu(curr);
+	curr->priority = eval_priority(curr);
+
+	thread_yield();
+	intr_set_level(old_level);
+
+	/* DEBUG */
+	if(debug_mode) {
+		printf("End thread_set_nice\n");
+	}
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) {
 	/* TODO: Your implementation goes here */
-	return 0;
+	enum intr_level old_level;
+	old_level = intr_disable ();
+	struct thread *curr = thread_current();
+	int got_nice = curr->nice;
+	intr_set_level (old_level);
+	return got_nice;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) {
 	/* TODO: Your implementation goes here */
-	return 0;
+	enum intr_level old_level;
+	old_level = intr_disable ();
+	int got_load_avg = xtoi_round(mulxn(load_avg, 100));
+	intr_set_level (old_level);
+	return got_load_avg;
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) {
 	/* TODO: Your implementation goes here */
-	return 0;
+	enum intr_level old_level;
+	old_level = intr_disable ();
+	struct thread *curr = thread_current();
+	int got_recent_cpu = xtoi_round(mulxn(curr->recent_cpu, 100));
+	intr_set_level (old_level);
+	return got_recent_cpu;
 }
+
+/* Evaluates priority using the given formula. */
+int
+eval_priority (struct thread *t) {
+	int priority = xtoi(subxn(subxy(itox(PRI_MAX), divxn(t->recent_cpu, 4)), 2 * t->nice));
+	if(priority > PRI_MAX) priority = PRI_MAX;
+	if(priority < PRI_MIN) priority = PRI_MIN;
+
+	ASSERT(PRI_MIN <= priority && priority <= PRI_MAX);
+
+	return priority;
+}
+
+/* Evaluates recent_cpu using the given formula. */
+int
+eval_recent_cpu (struct thread *t) {
+	return addxn(mulxy(divxy(mulxn(load_avg, 2), addxn(mulxn(load_avg, 2), 1)), t->recent_cpu), t->nice);
+}
+
+/* Evaluates load_avg using the given formula. */
+int 
+eval_load_avg (int ready_threads) {
+	return addxy(mulxy(divxy(itox(59), itox(60)), load_avg), mulxn(divxy(itox(1), itox(60)), ready_threads));
+}
+
 
 /* Idle thread.  Executes when no other thread is ready to run.
 
@@ -530,6 +696,13 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->original_priority = priority;
 	t->waiting_lock = NULL;
 	list_init(&t->donor_list);
+
+	t->nice = NICE_DEFAULT;
+	t->recent_cpu = RECENT_CPU_DEFAULT;
+
+	list_insert_ordered(&thread_list, &t->thread_elem, prior_thread_elem, NULL);
+	
+	// QUESTION : thread_create 에서 idle_thread 만들 일이 있으려나 ? 있을듯
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -653,6 +826,7 @@ do_schedule(int status) {
 	while (!list_empty (&destruction_req)) {
 		struct thread *victim =
 			list_entry (list_pop_front (&destruction_req), struct thread, elem);
+		list_remove(&victim->thread_elem);
 		palloc_free_page(victim);
 	}
 	thread_current ()->status = status;
@@ -708,4 +882,91 @@ allocate_tid (void) {
 	lock_release (&tid_lock);
 
 	return tid;
+}
+
+/* DEBUG */
+void
+debug_list_ready_list (void) {
+	if(!debug_mode)
+		return;
+	enum intr_level old_level;
+	old_level = intr_disable ();
+
+	struct thread *t;
+	struct list_elem *t_elem;
+	printf("\n---------------------------------------------\n");
+
+	struct thread *curr = thread_current();
+	if(curr == idle_thread)
+		printf("curr - idle %d[%s](priority: %d)\n", curr->tid, curr->name, curr->priority);
+	else
+		printf("curr - %d[%s](priority: %d)\n", curr->tid, curr->name, curr->priority);
+
+	printf("ready - ");
+	for (t_elem = list_begin(&ready_list); t_elem != list_end(&ready_list); t_elem = list_next(t_elem))
+	{
+		t = list_entry(t_elem, struct thread, elem);
+		// QUESTION : idle_thread 체크 필요하려나? 일단 필요하다고 생각 - init_thread 에서 생성한 특정 thread 를 idle 로 지목한다고 이해중
+		if(t != idle_thread)
+			printf("%d[%s](priority: %d), ", t->tid, t->name, t->priority);
+		else
+			printf("idle %d[%s](priority: %d), ", t->tid, t->name, t->priority);
+	}
+	printf("\nsleep - ");
+	for (t_elem = list_begin(&sleep_list); t_elem != list_end(&sleep_list); t_elem = list_next(t_elem))
+	{
+		t = list_entry(t_elem, struct thread, elem);
+		// QUESTION : idle_thread 체크 필요하려나? 일단 필요하다고 생각 - init_thread 에서 생성한 특정 thread 를 idle 로 지목한다고 이해중
+		if(t != idle_thread)
+			printf("%d[%s](wakeuptick: %lld), ", t->tid, t->name, t->wake_up_tick);
+		else
+			printf("idle %d[%s](wakeuptick: %lld), ", t->tid, t->name, t->wake_up_tick);
+	}
+	printf("\n---------------------------------------------\n");
+	intr_set_level(old_level);
+}
+
+void
+debug_all_list_of_thread (void) {
+	if(!debug_mode)
+		return;
+	enum intr_level old_level;
+	old_level = intr_disable ();
+
+	struct thread *t;
+	struct list_elem *t_elem;
+	
+	printf("\n---------------------------------------------\n");
+	printf("Thread - ");
+	for (t_elem = list_begin(&thread_list); t_elem != list_end(&thread_list); t_elem = list_next(t_elem))
+	{
+		t = list_entry(t_elem, struct thread, thread_elem);
+		// QUESTION : idle_thread 체크 필요하려나? 일단 필요하다고 생각 - init_thread 에서 생성한 특정 thread 를 idle 로 지목한다고 이해중
+		if(t == idle_thread) {
+			printf("idle %d[%s], ", t->tid, t->name);
+		} else {
+			printf("%d[%s], ", t->tid, t->name);
+		}
+	}
+	printf("\n---------------------------------------------\n");
+	intr_set_level(old_level);
+};
+
+/* DEBUG */
+void
+debug_mlfq_status (void) {
+	if(!debug_mode)
+		return;
+	enum intr_level old_level;
+	old_level = intr_disable ();
+	struct thread *curr = thread_current();
+
+	int recent_cpu = thread_get_recent_cpu ();
+	int load_avg = thread_get_load_avg ();
+
+	printf("\n---------------------------------------------\n");
+	printf("load average is  %d.%02d\n", load_avg / 100, load_avg % 100);
+	printf("curr thread's nice is %d, recent_cpu is %d.%02d", curr->nice, recent_cpu / 100, recent_cpu % 100);
+	printf("\n---------------------------------------------\n");
+	intr_set_level(old_level);
 }

@@ -28,6 +28,10 @@ typedef int tid_t;
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
 
+#define NICE_DEFAULT 0
+#define RECENT_CPU_DEFAULT 0
+#define LOAD_AVG_DEFAULT 0 
+
 /* A kernel thread or user process.
  *
  * Each thread structure is stored in its own 4 kB page.  The
@@ -98,6 +102,10 @@ struct thread {
 	struct list_elem donor_elem;
 	struct lock *waiting_lock;
 
+	struct list_elem thread_elem; /* It is in thread_list for tracking all the existing thread */
+	int nice;
+	int recent_cpu;
+
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem; /* List element. It is in ready_list / waiting_list of lock / sleep_list , and so on. */
 
@@ -122,6 +130,9 @@ struct thread {
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
+
+/* Customized */
+extern bool debug_mode;
 
 void thread_init (void);
 void thread_start (void);
@@ -148,11 +159,25 @@ void threads_wake_up(int64_t tick);
 int thread_get_priority (void);
 void thread_set_priority (int);
 
-int thread_get_nice (void);
-void thread_set_nice (int);
+void priority_update_all(void);
+void rcpu_increment(void);
+void load_avg_update(void);
+void rcpu_update_all(void);
+
+void thread_set_nice(int);
+int thread_get_nice(void);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
 
+int eval_priority(struct thread *);
+int eval_recent_cpu(struct thread *);
+int eval_load_avg(int);
+
 void do_iret (struct intr_frame *tf);
+
+// DEBUG
+void debug_list_ready_list(void);
+void debug_mlfq_status(void);
+void debug_all_list_of_thread(void);
 
 #endif /* threads/thread.h */

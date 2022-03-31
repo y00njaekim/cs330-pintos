@@ -139,7 +139,22 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	threads_wake_up(ticks);
 	thread_tick ();
+
+	if(thread_mlfqs) {
+		rcpu_increment();
+
+		if(timer_ticks() % TIMER_FREQ == 0) {
+			load_avg_update();
+			rcpu_update_all();
+		}
+
+		// It is executed when thread_ticks >= TIME_SLICE
+		if(timer_ticks() % 4 == 0) {
+			priority_update_all();
+		}
+	}
 }
+
 
 /* Returns true if LOOPS iterations waits for more than one timer
    tick, otherwise false. */

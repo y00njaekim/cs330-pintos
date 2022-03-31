@@ -2,9 +2,7 @@
    a tight loop for 60 seconds, and sleep for another 60 seconds.
    Every 2 seconds after the initial sleep, the main thread
    prints the load average.
-
    The expected output is this (some margin of error is allowed):
-
    After 0 seconds, load average=1.00.
    After 2 seconds, load average=2.95.
    After 4 seconds, load average=4.84.
