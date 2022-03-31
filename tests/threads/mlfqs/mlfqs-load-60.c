@@ -2,9 +2,7 @@
    a tight loop for 60 seconds, and sleep for another 60 seconds.
    Every 2 seconds after the initial sleep, the main thread
    prints the load average.
-
    The expected output is this (some margin of error is allowed):
-
    After 0 seconds, load average=1.00.
    After 2 seconds, load average=2.95.
    After 4 seconds, load average=4.84.
@@ -122,9 +120,6 @@ test_mlfqs_load_60 (void)
   msg ("Starting %d niced load threads...", THREAD_CNT);
   for (i = 0; i < THREAD_CNT; i++) 
     {
-      if(debug_mode) printf("\n\n@@@@@ first for - %d\n", i);
-      debug_list_ready_list();
-      
       char name[16];
       snprintf(name, sizeof name, "load %d", i);
       thread_create (name, PRI_DEFAULT, load_thread, NULL);
@@ -134,7 +129,6 @@ test_mlfqs_load_60 (void)
   
   for (i = 0; i < 90; i++) 
     {
-      if(debug_mode) printf("\n@@@@@ second for - %d\n\n", i);
       int64_t sleep_until = start_time + TIMER_FREQ * (2 * i + 10);
       int load_avg;
       timer_sleep (sleep_until - timer_ticks ());
@@ -147,29 +141,13 @@ test_mlfqs_load_60 (void)
 static void
 load_thread (void *aux UNUSED) 
 {
-  /* DEBUG */
-  if(debug_mode) {
-    printf("In load_thread\n");
-    printf("@@@@ Thread is %d\n", thread_current()->tid);
-  }
-
   int64_t sleep_time = 10 * TIMER_FREQ;
   int64_t spin_time = sleep_time + 60 * TIMER_FREQ;
   int64_t exit_time = spin_time + 60 * TIMER_FREQ;
-
-  /* DEBUG */
-  if(debug_mode) {
-    printf("sleep_time is %lld, spin_time is %lld, exit_time is %lld \n", sleep_time, spin_time, exit_time);
-  }
 
   thread_set_nice (20);
   timer_sleep (sleep_time - timer_elapsed (start_time));
   while (timer_elapsed (start_time) < spin_time)
     continue;
   timer_sleep (exit_time - timer_elapsed (start_time));
-
-  /* DEBUG */
-  if(debug_mode) {
-    printf("End load thread\n");
-  }
 }

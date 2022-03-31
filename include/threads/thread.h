@@ -164,10 +164,14 @@ void rcpu_increment(void);
 void load_avg_update(void);
 void rcpu_update_all(void);
 
+void thread_set_nice(int);
 int thread_get_nice(void);
-void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+int eval_priority(struct thread *);
+int eval_recent_cpu(struct thread *);
+int eval_load_avg(int);
 
 void do_iret (struct intr_frame *tf);
 
