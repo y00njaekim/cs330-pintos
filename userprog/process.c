@@ -27,6 +27,8 @@ static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
 
+void argument_passing(void **p_rsp, char **argv, int argc);
+
 /* General process initializer for initd and other process. */
 static void
 process_init (void) {
@@ -158,6 +160,53 @@ error:
 	thread_exit ();
 }
 
+/* Customized */
+void
+argument_passing(void **p_rsp, char** argv, int argc) {
+
+	int i;
+	for (i=argc-1; i>=0; i--) {
+		int arg_len = strlen(argv[i]) + 1;
+		*p_rsp -= arg_len;
+
+		uintptr_t rsp_ = *(uintptr_t *)p_rsp;
+
+		int j;
+		for(j=0; j<arg_len; j++) {
+			*(char *)rsp_ = argv[i][j];
+			rsp_++;
+		}
+
+		argv[i] = *(char **)p_rsp; // REMEMBER : 자료형
+	}
+
+	int padding = 8 - (*(unsigned long int*)p_rsp % 8);
+
+	int k;
+	for(k=padding; k>0; k--) {
+		*p_rsp--;
+		**(uint8_t **)p_rsp = (uint8_t)0;
+	}
+
+	p_rsp -= sizeof(char *);
+	**(char ***)p_rsp = (char *)0; // QUESTION : 0 넣는 방법 ?
+
+	for (i = argc-1; i>=0; i--) {
+		*p_rsp -= sizeof(char *);
+		**(char ***)p_rsp = argv[i];
+	}
+
+	// (5) return address
+	*p_rsp -= sizeof(void *);
+	**(void***)p_rsp = (void *)0;
+
+	/* type valid_uaddr_check(type uaddr) {
+		if (is_kernel_vaddr || uaddr = NULL // && pml4_get_page() = null
+		)
+		exit(-1);
+	} */
+}
+
 /* Switch the current execution context to the f_name.
  * Returns -1 on fail. */
 int
@@ -165,12 +214,16 @@ process_exec (void *f_name) {
 	char *file_name = f_name;
 	bool success;
 
+	/* HOXY */
+	char *file_name_copy[48];
+	memcpy(file_name_copy, file_name, strlen(file_name) + 1);
+
+	/* Customized */
 	char *argv[64];
 	int argc = 0;
 
 	char *token, *save_ptr;
-
-	for (token = strtok_r (file_name, " ", &save_ptr); token != NULL;
+	for (token = strtok_r (file_name_copy, " ", &save_ptr); token != NULL;
 	token = strtok_r (NULL, " ", &save_ptr)) {
 		argv[argc] = token;
 		argc++;
@@ -185,72 +238,24 @@ process_exec (void *f_name) {
 	_if.cs = SEL_UCSEG;
 	_if.eflags = FLAG_IF | FLAG_MBS;
 
-	/* Customized */
-	int i;
-	for (i=argc-1; i>=0; i--) {
-		char *curr = argv[i];
-		int curr_length = sizeof(*curr);
-	}
-
 	/* We first kill the current context */
 	process_cleanup ();
 
 	/* And then load the binary */
 	success = load (file_name, &_if);
 
-	/* Customized */
-	void **user_rsp = &_if.rsp;	// CPU로부터 push된 rip와 rsp는 R 해당 없음
-	argument_passing(,user_rsp);
-
-	// (4)
-	_if.R.rdi = argc	// rdi, rsi는 gp_register R 명시
-	_if.R.rsi = rsp + sizeof(void *)
-	
-
-
-	void
-	argument_passing( rsp)
-	
-	for i = argc-1; i>=0; i--
-	argv_len = strlen(argv[i]) + 1
-	*rsp -= argv_len
-	loc = rsp
-		for j = 0; j < argv_len; j++
-		**(char **)loc = argv[i][j]
-		*loc++
-	argv[i] = *rsp
-
-	padding = 8 - (rsp % 8) 
-	for k = padding  ; k > 0; k--)
-		*rsp--;
-		**(uint8_t**)rsp = 0
-	
-	rsp -= sizeof(char*)
-	**rsp = 0	// 0 넣는거???
-
-	for i = argc-1; i>=0; i--
-		*rsp -= sizeof(char *)
-		**(char ***)rsp = argv[i]
-	
-	
-	
-	// (5) return address
-	*rsp -= sizeof(void *);
-	**(void***)rsp = 0;
-
-
-	type valid_uaddr_check(type uaddr) {
-		if (is_kernel_vaddr || uaddr = NULL // && pml4_get_page() = null
-		)
-		exit(-1);
-	}
-
-
-
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
 	if (!success)
 		return -1;
+
+	/* Customized */
+	void **p_rsp = &_if.rsp;	// CPU 로부터 push 된 rip 와 rsp 는 R 해당 없음
+	argument_passing(p_rsp, argv, argc);
+
+	/* Customized Lab 2-1 (4) */
+	_if.R.rdi = argc; // rdi, rsi는 gp_register R 명시
+	_if.R.rsi = &_if.rsp + sizeof(void *);
 
 	/* Start switched process. */
 	do_iret (&_if);
