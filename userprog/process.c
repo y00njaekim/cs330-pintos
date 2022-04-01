@@ -165,6 +165,18 @@ process_exec (void *f_name) {
 	char *file_name = f_name;
 	bool success;
 
+	char *argv[64];
+	int argc = 0;
+
+	char *token, *save_ptr;
+
+	for (token = strtok_r (file_name, " ", &save_ptr); token != NULL;
+	token = strtok_r (NULL, " ", &save_ptr)) {
+		argv[argc] = token;
+		argc++;
+	}
+	argv[argc] = '\0';
+
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
 	 * it stores the execution information to the member. */
@@ -173,11 +185,67 @@ process_exec (void *f_name) {
 	_if.cs = SEL_UCSEG;
 	_if.eflags = FLAG_IF | FLAG_MBS;
 
+	/* Customized */
+	int i;
+	for (i=argc-1; i>=0; i--) {
+		char *curr = argv[i];
+		int curr_length = sizeof(*curr);
+	}
+
 	/* We first kill the current context */
 	process_cleanup ();
 
 	/* And then load the binary */
 	success = load (file_name, &_if);
+
+	/* Customized */
+	void **user_rsp = &_if.rsp;	// CPU로부터 push된 rip와 rsp는 R 해당 없음
+	argument_passing(,user_rsp);
+
+	// (4)
+	_if.R.rdi = argc	// rdi, rsi는 gp_register R 명시
+	_if.R.rsi = rsp + sizeof(void *)
+	
+
+
+	void
+	argument_passing( rsp)
+	
+	for i = argc-1; i>=0; i--
+	argv_len = strlen(argv[i]) + 1
+	*rsp -= argv_len
+	loc = rsp
+		for j = 0; j < argv_len; j++
+		**(char **)loc = argv[i][j]
+		*loc++
+	argv[i] = *rsp
+
+	padding = 8 - (rsp % 8) 
+	for k = padding  ; k > 0; k--)
+		*rsp--;
+		**(uint8_t**)rsp = 0
+	
+	rsp -= sizeof(char*)
+	**rsp = 0	// 0 넣는거???
+
+	for i = argc-1; i>=0; i--
+		*rsp -= sizeof(char *)
+		**(char ***)rsp = argv[i]
+	
+	
+	
+	// (5) return address
+	*rsp -= sizeof(void *);
+	**(void***)rsp = 0;
+
+
+	type valid_uaddr_check(type uaddr) {
+		if (is_kernel_vaddr || uaddr = NULL // && pml4_get_page() = null
+		)
+		exit(-1);
+	}
+
+
 
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
