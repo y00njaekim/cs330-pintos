@@ -27,6 +27,8 @@ static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
 
+void argument_passing(void **p_rsp, char **argv, int argc);
+
 /* General process initializer for initd and other process. */
 static void
 process_init (void) {
@@ -158,12 +160,79 @@ error:
 	thread_exit ();
 }
 
+/* Customized */
+void
+argument_passing(void **p_rsp, char** argv, int argc) {
+
+	int i;
+	for (i=argc-1; i>=0; i--) {
+		int arg_len = strlen(argv[i]) + 1;
+		*p_rsp -= arg_len;
+
+		uintptr_t rsp_ = *(uintptr_t *)p_rsp;
+
+		int j;
+		for(j=0; j<arg_len; j++) {
+			*(char *)rsp_ = argv[i][j];
+			rsp_++;
+		}
+
+		argv[i] = *(char **)p_rsp; // REMEMBER : 자료형
+	}
+
+	int padding = *(unsigned long int*)p_rsp % 8;
+
+	int k;
+	for(k=padding; k>0; k--) {
+		(*p_rsp)--;
+		**(uint8_t **)p_rsp = (uint8_t)0;
+	}
+
+	(*p_rsp) -= sizeof(char *);
+	**(char ***)p_rsp = (char *)0;
+
+	for (i = argc-1; i>=0; i--) {
+		(*p_rsp) -= sizeof(char *);
+		**(char ***)p_rsp = argv[i];
+	}
+
+	// (5) return address
+	*p_rsp -= sizeof(void *);
+	**(void***)p_rsp = (void *)0;
+
+	/* type valid_uaddr_check(type uaddr) {
+		if (is_kernel_vaddr || uaddr = NULL // && pml4_get_page() = null
+		)
+		exit(-1);
+	} */
+}
+
 /* Switch the current execution context to the f_name.
  * Returns -1 on fail. */
 int
 process_exec (void *f_name) {
+
+	/* TODO
+		1. tokenize 할 때 file name 복사본 사용
+		2. load, pallog_free_page 할 때 인자 결정 
+		3. hex_dump 세 번째 argument 결정 */
+
 	char *file_name = f_name;
 	bool success;
+
+	/* Customized */
+	char *argv[64];
+	int argc = 0;
+
+	char *token;
+	char *save_ptr;
+	token = strtok_r(file_name, " ", &save_ptr);
+	while (token != NULL) {
+		argv[argc] = token;
+		token = strtok_r(NULL, " ", &save_ptr);
+		argc++;
+	}
+	argv[argc] = '\0';
 
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
@@ -179,10 +248,20 @@ process_exec (void *f_name) {
 	/* And then load the binary */
 	success = load (file_name, &_if);
 
+	/* Customized */
+	void **p_rsp = &_if.rsp;	// CPU 로부터 push 된 rip 와 rsp 는 R 해당 없음
+	argument_passing(p_rsp, argv, argc);
+
+	/* Customized Lab 2-1 (4) */
+	_if.R.rdi = argc; // rdi, rsi는 gp_register R 명시
+	_if.R.rsi = &_if.rsp + sizeof(void *);
+
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
 	if (!success)
 		return -1;
+
+	hex_dump(_if.rsp, _if.rsp, 56, true);
 
 	/* Start switched process. */
 	do_iret (&_if);
@@ -201,6 +280,9 @@ process_exec (void *f_name) {
  * does nothing. */
 int
 process_wait (tid_t child_tid UNUSED) {
+	while(true) {
+		// TODO : 코드 작성
+	}
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
