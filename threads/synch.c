@@ -150,7 +150,7 @@ sema_up (struct semaphore *sema) {
 
 	/* DONE : if 문 안에다가 thread_yield() 넣었을 때 에러 발생
 	   -> 의사결정 후 if 문 안에 넣는 판단 시 error 해결 */
-	if(is_unblocked) thread_yield();
+	if(is_unblocked && !intr_context()) thread_yield();
 		
 }
 

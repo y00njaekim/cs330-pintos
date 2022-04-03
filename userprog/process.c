@@ -200,11 +200,6 @@ argument_passing(void **p_rsp, char** argv, int argc) {
 	*p_rsp -= sizeof(void *);
 	**(void***)p_rsp = (void *)0;
 
-	/* type valid_uaddr_check(type uaddr) {
-		if (is_kernel_vaddr || uaddr = NULL // && pml4_get_page() = null
-		)
-		exit(-1);
-	} */
 }
 
 /* Switch the current execution context to the f_name.
