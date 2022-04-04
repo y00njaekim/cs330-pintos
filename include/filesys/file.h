@@ -3,6 +3,7 @@
 
 #include "filesys/off_t.h"
 
+// TODO: file.h에 복붙하는 방법 말고 다른 방법 없나? inode는 어떻게 인식?
 struct inode;
 
 /* Opening and closing files. */

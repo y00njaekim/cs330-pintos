@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "filesys/file.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -31,6 +32,8 @@ typedef int tid_t;
 #define NICE_DEFAULT 0
 #define RECENT_CPU_DEFAULT 0
 #define LOAD_AVG_DEFAULT 0 
+
+#define	FD_MAX 128						/* Max value of fd */
 
 /* A kernel thread or user process.
  *
@@ -108,6 +111,14 @@ struct thread {
 
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem; /* List element. It is in ready_list / waiting_list of lock / sleep_list , and so on. */
+
+	/* Customized
+	 * file-related structures */
+	struct file *fd_table[FD_MAX]; // TODO : FD_MAX = 128 ?? 
+	int fdx; // file open시 매번 순회하여 찾을지, 혹은 fd_max 설정 시 순회할지
+
+	/* thread status for system call */
+	int exit_status;
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */

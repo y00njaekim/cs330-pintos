@@ -292,7 +292,7 @@ process_exit (void) {
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
-
+	// TODO: close() system call 사용하여 모든 열린 fd 닫기
 	process_cleanup ();
 }
 

@@ -691,7 +691,11 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
-	
+
+	/* Customized */
+	memset(t->fd_table, 0, FD_MAX * (sizeof(struct file *)));	// 두번째, 세번째 항 확인
+	t->fdx = 2;
+
 	/* Customized */
 	t->original_priority = priority;
 	t->waiting_lock = NULL;

@@ -7,6 +7,7 @@
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
+#include "filesys/file.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -137,7 +138,7 @@ void
 exit(int status) {
 	struct thread *curr = thread_current();
 	curr->exit_status = status;	// thread 자료구조에 스레드 exit시 status 만들기
-	// Process termination messages
+	printf ("%s: exit(%d)\n", thread_name(), status);	// Process termination messages
 	thread_exit();
 }
 
@@ -189,7 +190,7 @@ int wait (pid_t) {
 
 bool
 create (const char *file, unsigned initial_size) {
-	uaddr_validity_check(file);
+	ASSERT(file != NULL); // TODO: uaddr_validity_check(file); ???
 	return filesys_create(file, initial_size);
 }
 
@@ -201,21 +202,42 @@ create (const char *file, unsigned initial_size) {
 
 bool
 remove (const char *file) {
-	uaddr_validity_check(file);
+	ASSERT(file != NULL); // TODO: uaddr_validity_check(file); ???
 	return filesys_remove(file);
 }
 
 /* open
  * file 이름의 파일을 오픈.
  * 성공: fd, 실패: -1
- * Reference: file.c/file_open()
+ * Reference: filesys.c/filesys_open()
  */
 
 int
 open (const char *file) {
-	// (1) file 오픈 - file.c의 file_open(struct inode *inode)
+	ASSERT(file != NULL);
+	// (1) file 오픈 - filesys.c의 filesys_open(const char *name)
+	struct file *open_file = filesys_open(file);
+	if(open_file == NULL) return -1;
 	// (2) 해당 file에 fd 부여
+	struct thread *curr = thread_current();
+	while(curr->fdx < FD_MAX && curr->fd_table[curr->fdx]) curr->fdx++;	// 비어 있는 
 	// (3) 성공: return fd, 실패: -1
+	if(curr->fdx == FD_MAX) return -1;	// fd값이 꽉 찼습니다
+	// TODO: open이 fail하는 경우의 수가 fd_table이 꽉 찬 경우 밖에 없나?
+	curr->fd_table[curr->fdx] = file;
+	return curr->fdx;
+}
+
+/* fd_match_file()
+ * 해당 fd에 해당하는 file 매치
+ * 경계조건들?
+ */
+
+struct file*
+fd_match_file(int fd) {
+	struct thread *curr = thread_current();
+	ASSERT(fd >= 0 && fd < FD_MAX);
+	return curr->fd_table[fd];
 }
 
 /* filesize
@@ -226,7 +248,10 @@ open (const char *file) {
 int
 filesize (int fd) {
 	// (1) 해당 fd에 해당하는 file 매치
-	// (2) 성공: file 길이 리턴, strlen(file) ?, 실패: -1
+	struct file *matched_file = fd_match_file(fd);
+	// NULL 체크 안하는 이유는 file_xx 함수에서 체크하기 때문에
+	// (2) 성공: file 길이 리턴
+	return file_length(matched_file);
 }
 
 /* read
@@ -239,7 +264,22 @@ filesize (int fd) {
 int
 read (int fd, void *buffer, unsigned size) {
 	// (1) 파일에 접근할 때에는 lock 걸기
+	lock_acquire(&file_lock);
+	int bytes_read;
 	// (2) 해당 fd에 해당하는 file 매치
+	struct file *matched_file = fd_match_file(fd);
+	if(fd == 0) {
+		int size_temp = size;
+		// TODO: validity check
+		while(size_temp--) strlcat(buffer, input_getc(), sizeof(char));
+		bytes_read = size;
+	}
+	else {
+		if(matched_file == NULL) return -1;
+		bytes_read = file_read(matched_file, buffer, size);
+	}
+	lock_release(&file_lock);
+	return bytes_read;
 	// (3) fd = 0:	reads from the keyboard using input_getc()
 	// (4) fd != 0:	reads size bytes from the file open as fd into buffer
 }
@@ -258,9 +298,21 @@ read (int fd, void *buffer, unsigned size) {
 int
 write (int fd, const void *buffer, unsigned size) {
 	// (1) 파일에 접근할 때에는 lock 걸기
+	lock_acquire(&file_lock);
+	int bytes_written;
 	// (2) 해당 fd에 해당하는 file 매치
+	struct file *matched_file = fd_match_file(fd);
 	// (3) fd = 1:	writes on the console using putbuf()
+	if(fd == 1) { 
+		putbuf(buffer, size);	// TODO: sizeof(buffer) < size 인 경우에 putbuf while문에서 무한루프?
+		bytes_written = size;	
+	}
+	else {
+		bytes_written = file_write(matched_file, buffer, size);
+	}
 	// (4) fd != 1:	writes size bytes from buffer to the open file
+	lock_release(&file_lock);
+	return bytes_written;
 }
 
 /* seek
@@ -274,7 +326,9 @@ write (int fd, const void *buffer, unsigned size) {
 void
 seek (int fd, unsigned position) {
 	// (1) 해당 fd에 해당하는 file 매치
+	struct file *matched_file = fd_match_file(fd);
 	// (2) offset을 position 만큼 이동
+	file_seek(matched_file, position);
 }
 
 /* tell
@@ -286,8 +340,10 @@ seek (int fd, unsigned position) {
 unsigned
 tell (int fd) {
 	// file_tell() 함수는 struct file *file을 인자로 받기 때문에 이를 fd로부터 구해준다.
-	struct file *file = fd로부터 파일 구하기	// (1) 해당 fd에 해당하는 file 매치
-	return file_tell(file);					// (2) 해당 file의 열린 위치 반환
+	// (1) 해당 fd에 해당하는 file 매치
+	struct file *matched_file = fd_match_file(fd);
+	// (2) 해당 file의 열린 위치 반환
+	return file_tell(matched_file);
 }
 
 /* close
@@ -298,5 +354,9 @@ tell (int fd) {
 void
 close (int fd) {
 	// (1) 해당 fd에 해당하는 file 매치
+	struct thread *curr = thread_current();
+	struct file *matched_file = fd_match_file(fd);
 	// (2) file 닫고, fd entry 초기화
+	curr->fd_table[fd] = NULL;
+	file_close(matched_file);
 }
