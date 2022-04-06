@@ -1,5 +1,6 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
+#include <string.h>
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
@@ -8,9 +9,17 @@
 #include "threads/flags.h"
 #include "intrinsic.h"
 #include "filesys/file.h"
+#include "filesys/filesys.h"
+/* TODO : `putbuf() 는 lib/kernel/stdio.h 에 존재
+	        <stdio.h> 에서 #include_next 로 lib/kernel/stdio.h 수행
+					-> 우리가 따로 import 해야 하는가? */
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
+
+/* TODO (DONE) : lock_init(&file_lock) 을 어디에서 해야하는 거임 !? 
+	 의사결정 -> syscall_init */
+static struct lock file_lock;
 
 /* System call.
  *
@@ -36,6 +45,9 @@ syscall_init (void) {
 	 * mode stack. Therefore, we masked the FLAG_FL. */
 	write_msr(MSR_SYSCALL_MASK,
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
+
+	/* Customized */
+	lock_init(&file_lock);
 }
 
 // void halt (void) NO_RETURN;
@@ -224,7 +236,7 @@ open (const char *file) {
 	// (3) 성공: return fd, 실패: -1
 	if(curr->fdx == FD_MAX) return -1;	// fd값이 꽉 찼습니다
 	// TODO: open이 fail하는 경우의 수가 fd_table이 꽉 찬 경우 밖에 없나?
-	curr->fd_table[curr->fdx] = file;
+	curr->fd_table[curr->fdx] = open_file;
 	return curr->fdx;
 }
 
@@ -266,18 +278,27 @@ read (int fd, void *buffer, unsigned size) {
 	// (1) 파일에 접근할 때에는 lock 걸기
 	lock_acquire(&file_lock);
 	int bytes_read;
-	// (2) 해당 fd에 해당하는 file 매치
-	struct file *matched_file = fd_match_file(fd);
+
 	if(fd == 0) {
-		int size_temp = size;
+		int size_ = size;
+
 		// TODO: validity check
-		while(size_temp--) strlcat(buffer, input_getc(), sizeof(char));
+		size_t buf_len = strlen(buffer);
+		while(size_--) {
+			memset(buffer + buf_len, input_getc(), sizeof(char));
+			buf_len++;
+		}
+		memset(buffer + buf_len, 0, sizeof(char));
+
 		bytes_read = size;
 	}
 	else {
+		// (2) 해당 fd에 해당하는 file 매치
+		struct file *matched_file = fd_match_file(fd);
 		if(matched_file == NULL) return -1;
 		bytes_read = file_read(matched_file, buffer, size);
 	}
+
 	lock_release(&file_lock);
 	return bytes_read;
 	// (3) fd = 0:	reads from the keyboard using input_getc()
@@ -297,20 +318,21 @@ read (int fd, void *buffer, unsigned size) {
 
 int
 write (int fd, const void *buffer, unsigned size) {
-	// (1) 파일에 접근할 때에는 lock 걸기
 	lock_acquire(&file_lock);
-	int bytes_written;
-	// (2) 해당 fd에 해당하는 file 매치
-	struct file *matched_file = fd_match_file(fd);
+	int bytes_written = 0;
+
 	// (3) fd = 1:	writes on the console using putbuf()
-	if(fd == 1) { 
-		putbuf(buffer, size);	// TODO: sizeof(buffer) < size 인 경우에 putbuf while문에서 무한루프?
+	if(fd == 1) {
+		putbuf(buffer, size); // TODO: sizeof(buffer) < size 인 경우에 putbuf while문에서 무한루프?
 		bytes_written = size;	
-	}
-	else {
+	}	else {
+		// (2) 해당 fd에 해당하는 file 매치
+		struct file *matched_file = fd_match_file(fd);
+
+		// (4) fd != 1:	writes size bytes from buffer to the open file
 		bytes_written = file_write(matched_file, buffer, size);
 	}
-	// (4) fd != 1:	writes size bytes from buffer to the open file
+
 	lock_release(&file_lock);
 	return bytes_written;
 }
@@ -327,6 +349,7 @@ void
 seek (int fd, unsigned position) {
 	// (1) 해당 fd에 해당하는 file 매치
 	struct file *matched_file = fd_match_file(fd);
+
 	// (2) offset을 position 만큼 이동
 	file_seek(matched_file, position);
 }
@@ -340,8 +363,10 @@ seek (int fd, unsigned position) {
 unsigned
 tell (int fd) {
 	// file_tell() 함수는 struct file *file을 인자로 받기 때문에 이를 fd로부터 구해준다.
+
 	// (1) 해당 fd에 해당하는 file 매치
 	struct file *matched_file = fd_match_file(fd);
+
 	// (2) 해당 file의 열린 위치 반환
 	return file_tell(matched_file);
 }
@@ -351,11 +376,13 @@ tell (int fd) {
  * process_exit() 시에 열린 파일 모두 닫아야 하는데, 이를 구현해주기
  * Reference: file.c/file_close() 
  */
+
 void
 close (int fd) {
 	// (1) 해당 fd에 해당하는 file 매치
 	struct thread *curr = thread_current();
 	struct file *matched_file = fd_match_file(fd);
+	
 	// (2) file 닫고, fd entry 초기화
 	curr->fd_table[fd] = NULL;
 	file_close(matched_file);

@@ -3,6 +3,8 @@
 #include "filesys/inode.h"
 #include "threads/malloc.h"
 
+// TODO : 모든 함수 lock 설정 의사 결정
+
 /* An open file. */
 struct file {
 	struct inode *inode;        /* File's inode. */
