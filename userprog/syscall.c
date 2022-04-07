@@ -10,6 +10,7 @@
 #include "intrinsic.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
+#include "userprog/process.h"
 /* TODO : `putbuf() 는 lib/kernel/stdio.h 에 존재
 	        <stdio.h> 에서 #include_next 로 lib/kernel/stdio.h 수행
 					-> 우리가 따로 import 해야 하는가? */
@@ -90,32 +91,43 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			halt();
 			break;
 		case SYS_EXIT:			/* Terminate this process. */
-			exit();
+			exit(f->R.rdi);
 			break;
 		case SYS_FORK:			/* Clone current process. */
+			f->R.rax = fork(f->R.rdi, f);
 			break;
 		case SYS_EXEC:			/* Switch current process. */
-			if(otherwise) exit(-1);
+			exec(f->R.rdi);
 			break;
 		case SYS_WAIT: 			/* Wait for a child process to die. */
+			f->R.rax = wait(f->R.rdi);
 			break;
 		case SYS_CREATE:		/* Create a file. */
+			f->R.rax = create(f->R.rdi, f->R.rsi);
 			break;
 		case SYS_REMOVE:		/* Delete a file. */
+			f->R.rax = remove(f->R.rdi);
 			break;
 		case SYS_OPEN:			/* Open a file. */
+			f->R.rax = open(f->R.rdi);
 			break;
 		case SYS_FILESIZE:		/* Obtain a file's size. */
+			f->R.rax = filesize(f->R.rdi);
 			break;
 		case SYS_READ:			/* Read from a file. */
+			f->R.rax = read(f->R.rdi, f->R.rsi, f->R.rdx);
 			break;
 		case SYS_WRITE:			/* Write to a file. */
+			f->R.rax = write(f->R.rdi, f->R.rsi, f->R.rdx);
 			break;
 		case SYS_SEEK:			/* Change position in a file. */
+			seek(f->R.rdi, f->R.rsi);
 			break;
 		case SYS_TELL:			/* Report current position in a file. */
+			f->R.rax = tell(f->R.rdi);
 			break;
 		case SYS_CLOSE:			/* Close a file. */
+			close(f->R.rdi);
 			break;
 		default:
 			exit(-1);
@@ -158,8 +170,8 @@ exit(int status) {
 */
 
 pid_t
-fork (const char *thread_name) {
-
+fork (const char *thread_name, struct intr_frame *if_) {
+	return process_fork(thread_name, if_);	// TODO: f는 어디서 가져와?
 }
 
 /* exec
@@ -169,12 +181,14 @@ fork (const char *thread_name) {
 
 int
 exec(const char *cmd_line) {
-
-	성공
-	if success != true
-	exit(-1)
-	return -1;
-
+	ASSERT(cmd_line != NULL);
+	// TODO: cmd_line 그대로 사용하나? 
+	// process_create_initd()에서 caller와 load 사이 race 방지 위해 복사. 여기서도 같은 방법?
+    char *cmd_copy = palloc_get_page(0); // 복사할곳=palloc_get_page(PAL_ZERO);
+	if (cmd_copy == NULL) exit(-1);		// if(복사할곳 == NULL) exit(-1);
+	strlcpy(cmd_copy, cmd_line, strlen(cmd_line) + 1);	// 복사본 = strlcpy(복사할곳, cmd_line, strlen(cmd_line) + 1);
+	if (process_exec(cmd_line) == -1) exit(-1);		// QUESTION: palloc_free_page (cmd_copy) 해주어야 하나? 에러인 경우에?
+	// TODO: 성공적으로 실행되면 자식 리스트에서 제거하여야 하나?
 	NOT_REACHED ();	// thread_exit()에서의 용법 참고. exec은 exit status 없이 리턴하지 않는다.
 	return 0;
 }
@@ -183,7 +197,7 @@ exec(const char *cmd_line) {
  */
 
 int wait (pid_t) {
-
+	return process_wait(pid_t);
 }
 
 /* file관련 system calls

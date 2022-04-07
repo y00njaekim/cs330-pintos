@@ -94,21 +94,28 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	bool writable;
 
 	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
+	if(is_kernel_vaddr(va)) return false;	// TODO: true or false?
 
 	/* 2. Resolve VA from the parent's page map level 4. */
 	parent_page = pml4_get_page (parent->pml4, va);
+	if(parent_page == NULL) return false;	// unmapped?
 
 	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
 	 *    TODO: NEWPAGE. */
+	newpage = palloc_get_page(PAL_USER|PAL_ZERO);
+	if (newpage == NULL) return false;
 
 	/* 4. TODO: Duplicate parent's page to the new page and
 	 *    TODO: check whether parent's page is writable or not (set WRITABLE
 	 *    TODO: according to the result). */
+	memcpy(newpage, parent_page, PGSIZE);
+	writable = is_writable(pte);
 
 	/* 5. Add new page to child's page table at address VA with WRITABLE
 	 *    permission. */
 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
 		/* 6. TODO: if fail to insert page, do error handling. */
+		return false;
 	}
 	return true;
 }
@@ -126,11 +133,31 @@ __do_fork (void *aux) {
 	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
 	struct intr_frame *parent_if;
 	bool succ = true;
+	/* TODO: You don't need to clone the value of the callee-saved registers.
+	 * callee-saved registers: rbx, rbp, rsp, r12 - 15
+	 * 위의 TODO 해결 위해 struct thread의 intr_frame tf를 참조하여 복사.
+	 * Question 1: parent->tf 참조하면 process_fork()의 if_가 참조되는가?
+	 * Question 2: if 참조 시 모든 레지스터 참조될 텐데, callee-saved register만 참조되도록 설정해야 하는가?
+	 */
+	parent_if = &parent->tf;
 
 	/* 1. Read the cpu context to local stack. */
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
+	if_.R.rax = 0;	// In child process, the return value should be 0
+
+	// 	/* Call the kernel_thread if it scheduled.
+	//  * Note) rdi is 1st argument, and rsi is 2nd argument. */
+	// t->tf.rip = (uintptr_t) kernel_thread;
+	// t->tf.R.rdi = (uint64_t) function;
+	// t->tf.R.rsi = (uint64_t) aux;
+	// t->tf.ds = SEL_KDSEG;
+	// t->tf.es = SEL_KDSEG;
+	// t->tf.ss = SEL_KDSEG;
+	// t->tf.cs = SEL_KCSEG;
+	// t->tf.eflags = FLAG_IF;
 
 	/* 2. Duplicate PT */
+	/* TODO: protection required (memory access) */
 	current->pml4 = pml4_create();
 	if (current->pml4 == NULL)
 		goto error;
@@ -151,12 +178,24 @@ __do_fork (void *aux) {
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
 
+	// TODO: fd_table[0] (STDIN), fd_table[1] (STDOUT)의 경우에도 duplicate 괜찮은가?
+	for (int fd_step = 0; fd_step < FD_MAX; fd_step++) {
+		// 만약 복사해야할 엔트리가 비어있다면
+		if(parent->fd_table[fd_step] == NULL) continue; 
+		current->fd_table[fd_step] = file_duplicate(parent->fd_table[fd_step]);
+	}
+	current->fdx = parent->fdx;
+	sema_up(&current->fsema);
 	process_init ();
+
 
 	/* Finally, switch to the newly created process. */
 	if (succ)
 		do_iret (&if_);
 error:
+	current->exit_status = TID_ERROR;
+	sema_up(&current->fsema);
+	exit(TID_ERROR);
 	thread_exit ();
 }
 
@@ -275,9 +314,19 @@ process_exec (void *f_name) {
  * does nothing. */
 int
 process_wait (tid_t child_tid UNUSED) {
-	while(true) {
-		// TODO : 코드 작성
-	}
+	/* PSUEDO */
+	내 자식 리스트에서 child_tid 가진 자식 탐색하여 스레드를 리턴	// 자식 스레드를 tid 통해서 찾아오는 과정이 필요
+	그 스레드 리턴시 스레드 exit_status 리턴
+	종료됐으면 내 자식 리스트에서 삭제
+	중간에 -1로 리턴된 경우 리턴 -1
+	pid가 자식 프로세스 가리키지 않으면 -1
+	// QUESTION: wait을 2회 이상 하면? 겹치면??
+
+	/* 필요한 개념
+	 * 1. 자식 리스트: 스레드 자료구조 내에 나의 자식들의 리스트가 있어야 함. (TID?)
+	 * 2. 자식 리스트 elem: 서치 위해서 elem 만들어놓기
+	 */
+
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
@@ -293,6 +342,7 @@ process_exit (void) {
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
 	// TODO: close() system call 사용하여 모든 열린 fd 닫기
+	
 	process_cleanup ();
 }
 
