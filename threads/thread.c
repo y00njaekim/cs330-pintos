@@ -701,6 +701,10 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->waiting_lock = NULL;
 	list_init(&t->donor_list);
 
+	/* Customized Lab 2-2 */
+	list_init(&t->child_list);
+	sema_init(&t->fork_sema, 0);
+
 	t->nice = NICE_DEFAULT;
 	t->recent_cpu = RECENT_CPU_DEFAULT;
 
