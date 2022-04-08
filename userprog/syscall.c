@@ -11,6 +11,8 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "userprog/process.h"
+#include "threads/palloc.h"
+
 /* TODO : `putbuf() 는 lib/kernel/stdio.h 에 존재
 	        <stdio.h> 에서 #include_next 로 lib/kernel/stdio.h 수행
 					-> 우리가 따로 import 해야 하는가? */
@@ -115,6 +117,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 			f->R.rax = filesize(f->R.rdi);
 			break;
 		case SYS_READ:			/* Read from a file. */
+			// is_user_vaddr(f->R.rsi);
 			f->R.rax = read(f->R.rdi, f->R.rsi, f->R.rdx);
 			break;
 		case SYS_WRITE:			/* Write to a file. */
@@ -294,6 +297,11 @@ read (int fd, void *buffer, unsigned size) {
 	int bytes_read;
 
 	if(fd == 0) {
+		// QUESTION: 매 키보드의 입력이 trigger가 되어 read(0,buf,sizeof(char)) 발생하는 것 아닌가??
+		/* QUESTION:
+		 * fd == 0 인경우 시스템콜 호출 시 size는 어떤 값이 들어오는가?
+		 */
+		 
 		int size_ = size;
 
 		// TODO: validity check
@@ -303,8 +311,9 @@ read (int fd, void *buffer, unsigned size) {
 			buf_len++;
 		}
 		memset(buffer + buf_len, 0, sizeof(char));
-
+		
 		bytes_read = size;
+
 	}
 	else {
 		// (2) 해당 fd에 해당하는 file 매치
@@ -342,7 +351,7 @@ write (int fd, const void *buffer, unsigned size) {
 	}	else {
 		// (2) 해당 fd에 해당하는 file 매치
 		struct file *matched_file = fd_match_file(fd);
-
+		if(matched_file == NULL) return -1;
 		// (4) fd != 1:	writes size bytes from buffer to the open file
 		bytes_written = file_write(matched_file, buffer, size);
 	}
@@ -362,6 +371,7 @@ write (int fd, const void *buffer, unsigned size) {
 void
 seek (int fd, unsigned position) {
 	// (1) 해당 fd에 해당하는 file 매치
+	// TODO: if(fd == 0 || fd == 1) return;
 	struct file *matched_file = fd_match_file(fd);
 
 	// (2) offset을 position 만큼 이동
@@ -379,6 +389,7 @@ tell (int fd) {
 	// file_tell() 함수는 struct file *file을 인자로 받기 때문에 이를 fd로부터 구해준다.
 
 	// (1) 해당 fd에 해당하는 file 매치
+	// TODO: if(fd == 0 || fd == 1) return;
 	struct file *matched_file = fd_match_file(fd);
 
 	// (2) 해당 file의 열린 위치 반환
@@ -399,5 +410,6 @@ close (int fd) {
 	
 	// (2) file 닫고, fd entry 초기화
 	curr->fd_table[fd] = NULL;
+	curr->fdx =  (curr->fdx > fd) ? fd : curr->fdx;
 	file_close(matched_file);
 }

@@ -314,6 +314,11 @@ process_exec (void *f_name) {
  * does nothing. */
 int
 process_wait (tid_t child_tid UNUSED) {
+	/* TID와 PID?
+	 * syscall에서는 PID를 통해 추적하지만 핀토스에서는 process와 thread가 대응되므로
+	 * PID를 요구하는 syscall에 tid를 대입하는 것이 당위적이다. 
+	 */
+	
 	/* PSUEDO */
 	내 자식 리스트에서 child_tid 가진 자식 탐색하여 스레드를 리턴	// 자식 스레드를 tid 통해서 찾아오는 과정이 필요
 	그 스레드 리턴시 스레드 exit_status 리턴
@@ -342,7 +347,12 @@ process_exit (void) {
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
 	// TODO: close() system call 사용하여 모든 열린 fd 닫기
-	
+	for (int fd_step = 2; fd_step < FD_MAX; fd_step++) {
+		if (curr->fd_table[fd_step] == NULL) continue;
+		close(fd_step);
+	}
+	/* QUESTION: process termination message는 exit() 시스템 콜에서 불리니 print 필요 없나? */
+	// printf ("%s: exit(%d)\n", ...);
 	process_cleanup ();
 }
 
