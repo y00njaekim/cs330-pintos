@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #include "filesys/file.h"
 #ifdef VM
 #include "vm/vm.h"
@@ -135,6 +136,11 @@ struct thread {
 
 	/* Customized */
 	int64_t wake_up_tick;               /* Information for switching */
+
+	/* Customized Lab 2-2 */
+	struct list child_list;
+	struct list_elem child_elem;
+	struct semaphore fork_sema;
 };
 
 /* If false (default), use round-robin scheduler.

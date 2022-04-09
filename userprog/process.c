@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <list.h>
 #include "userprog/gdt.h"
 #include "userprog/tss.h"
 #include "filesys/directory.h"
@@ -186,8 +187,10 @@ __do_fork (void *aux) {
 	}
 	current->fdx = parent->fdx;
 	sema_up(&current->fsema);
-	process_init ();
 
+	list_push_back(&parent->child_list, &current->child_elem); // child list 에 추가하기
+
+	process_init ();
 
 	/* Finally, switch to the newly created process. */
 	if (succ)
@@ -276,6 +279,9 @@ process_exec (void *f_name) {
 	_if.cs = SEL_UCSEG;
 	_if.eflags = FLAG_IF | FLAG_MBS;
 
+	// QUESTION: sema_up 위치가 여기가 맞나?
+	sema_up(&thread_current()->fork_sema);
+
 	/* We first kill the current context */
 	process_cleanup ();
 
@@ -312,6 +318,21 @@ process_exec (void *f_name) {
  *
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
+
+struct thread *
+find_child(tid_t child_tid) {
+	struct thread *curr = thread_current();
+	struct thread *child = NULL;
+	struct list_elem *child_list_elem = NULL;
+
+	for (child_list_elem = list_begin(&curr->child_list); child_list_elem != list_end(&curr->child_list); child_list_elem = list_next (child_list_elem)) {
+		child = list_entry(child_list_elem, struct thread, child_elem);
+		if(child->tid == child_tid)
+			break;
+	}
+	return child;
+}
+
 int
 process_wait (tid_t child_tid UNUSED) {
 	/* TID와 PID?
@@ -320,11 +341,22 @@ process_wait (tid_t child_tid UNUSED) {
 	 */
 	
 	/* PSUEDO */
-	내 자식 리스트에서 child_tid 가진 자식 탐색하여 스레드를 리턴	// 자식 스레드를 tid 통해서 찾아오는 과정이 필요
-	그 스레드 리턴시 스레드 exit_status 리턴
-	종료됐으면 내 자식 리스트에서 삭제
-	중간에 -1로 리턴된 경우 리턴 -1
-	pid가 자식 프로세스 가리키지 않으면 -1
+
+	// child list 에 넣거나 fork 빼는 exit (exec) 과정 추가 
+	struct thread *parent = thread_current();
+	struct thread *child = find_child(child_tid);
+	if(child == NULL)
+		return -1; // child_tid 에 해당하는 프로세스가 child_list 에 없음
+
+	sema_down(&child->fork_sema);
+
+	list_remove(&child->child_elem); // parent 의 child list 에서 child 제거
+
+	if(child->exit_status == -1)
+		return -1;
+	else
+		return child->exit_status;
+
 	// QUESTION: wait을 2회 이상 하면? 겹치면??
 
 	/* 필요한 개념
@@ -335,7 +367,7 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	return -1;
+
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -351,6 +383,10 @@ process_exit (void) {
 		if (curr->fd_table[fd_step] == NULL) continue;
 		close(fd_step);
 	}
+
+	// QUESTION: sema_up 위치가 여기가 맞나?
+	sema_up(&curr->fork_sema);
+
 	/* QUESTION: process termination message는 exit() 시스템 콜에서 불리니 print 필요 없나? */
 	// printf ("%s: exit(%d)\n", ...);
 	process_cleanup ();
