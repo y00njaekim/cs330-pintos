@@ -141,6 +141,7 @@ struct thread {
 	struct list child_list;
 	struct list_elem child_elem;
 	struct semaphore fork_sema;
+	struct intr_frame ff; // fork frame
 };
 
 /* If false (default), use round-robin scheduler.
