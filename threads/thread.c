@@ -261,6 +261,8 @@ thread_create (const char *name, int priority,
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
 
+	list_push_back(&thread_current()->child_list, &t->child_elem);
+
 	/* Add to run queue. */
 	thread_unblock (t);
 
@@ -703,7 +705,8 @@ init_thread (struct thread *t, const char *name, int priority) {
 
 	/* Customized Lab 2-2 */
 	list_init(&t->child_list);
-	sema_init(&t->fork_sema, 0);
+	sema_init(&t->wait_sema, 0);
+	sema_init(&t->cleanup_sema, 0);
 
 	t->nice = NICE_DEFAULT;
 	t->recent_cpu = RECENT_CPU_DEFAULT;
