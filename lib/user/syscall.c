@@ -81,8 +81,8 @@ exit (int status) {
 }
 
 pid_t
-fork (const char *thread_name, struct intr_frame *if_){
-	return (pid_t) syscall2 (SYS_FORK, thread_name, if_);
+fork (const char *thread_name){
+	return (pid_t) syscall1 (SYS_FORK, thread_name);
 }
 
 int

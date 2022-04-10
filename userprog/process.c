@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <list.h>
+#include "lib/user/syscall.h"
 #include "userprog/gdt.h"
 #include "userprog/tss.h"
 #include "filesys/directory.h"
@@ -27,6 +28,7 @@ static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
 static void __do_fork (void *);
+struct thread *find_child(tid_t child_tid);
 
 void argument_passing(void **p_rsp, char **argv, int argc);
 
@@ -140,7 +142,7 @@ __do_fork (void *aux) {
 	 * Question 1: parent->tf 참조하면 process_fork()의 if_가 참조되는가?
 	 * Question 2: if 참조 시 모든 레지스터 참조될 텐데, callee-saved register만 참조되도록 설정해야 하는가?
 	 */
-	parent_if = &parent->tf;
+	parent_if = &parent->ff;
 
 	/* 1. Read the cpu context to local stack. */
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
@@ -180,13 +182,15 @@ __do_fork (void *aux) {
 	 * TODO:       the resources of parent.*/
 
 	// TODO: fd_table[0] (STDIN), fd_table[1] (STDOUT)의 경우에도 duplicate 괜찮은가?
-	for (int fd_step = 0; fd_step < FD_MAX; fd_step++) {
+	current->fd_table[0] = parent->fd_table[0];
+	current->fd_table[1] = parent->fd_table[1];
+	for (int fd_step = 2; fd_step < FD_MAX; fd_step++) {
 		// 만약 복사해야할 엔트리가 비어있다면
 		if(parent->fd_table[fd_step] == NULL) continue; 
 		current->fd_table[fd_step] = file_duplicate(parent->fd_table[fd_step]);
 	}
 	current->fdx = parent->fdx;
-	sema_up(&current->fsema);
+	// sema_up(&current->fsema);
 
 	list_push_back(&parent->child_list, &current->child_elem); // child list 에 추가하기
 
@@ -197,7 +201,7 @@ __do_fork (void *aux) {
 		do_iret (&if_);
 error:
 	current->exit_status = TID_ERROR;
-	sema_up(&current->fsema);
+	// sema_up(&current->fsema);
 	exit(TID_ERROR);
 	thread_exit ();
 }
@@ -294,14 +298,14 @@ process_exec (void *f_name) {
 
 	/* Customized Lab 2-1 (4) */
 	_if.R.rdi = argc; // rdi, rsi는 gp_register R 명시
-	_if.R.rsi = &_if.rsp + sizeof(void *);
+	_if.R.rsi = _if.rsp + sizeof(void *);
 
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
 	if (!success)
 		return -1;
 
-	hex_dump(_if.rsp, _if.rsp, 56, true);
+	hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
 
 	/* Start switched process. */
 	do_iret (&_if);

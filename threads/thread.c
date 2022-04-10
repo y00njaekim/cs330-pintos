@@ -481,8 +481,8 @@ thread_get_priority (void) {
 
 void
 priority_update_all() {
-	struct thread *curr = thread_current ();
-	struct lock *waiting_lock;
+	// struct thread *curr = thread_current ();
+	// struct lock *waiting_lock;
 
 	struct thread *t;
 	struct list_elem *t_elem;
