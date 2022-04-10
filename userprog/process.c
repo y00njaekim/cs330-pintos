@@ -192,8 +192,6 @@ __do_fork (void *aux) {
 	current->fdx = parent->fdx;
 	// sema_up(&current->fsema);
 
-	list_push_back(&parent->child_list, &current->child_elem); // child list 에 추가하기
-
 	process_init ();
 
 	/* Finally, switch to the newly created process. */
@@ -284,7 +282,8 @@ process_exec (void *f_name) {
 	_if.eflags = FLAG_IF | FLAG_MBS;
 
 	// QUESTION: sema_up 위치가 여기가 맞나?
-	sema_up(&thread_current()->fork_sema);
+	// sema_up(&thread_current()->wait_sema);
+	// sema_down(&thread_current()->cleanup_sema);
 
 	/* We first kill the current context */
 	process_cleanup ();
@@ -352,14 +351,12 @@ process_wait (tid_t child_tid UNUSED) {
 	if(child == NULL)
 		return -1; // child_tid 에 해당하는 프로세스가 child_list 에 없음
 
-	sema_down(&child->fork_sema);
-
+	sema_down(&child->wait_sema);
+	int child_status = child->exit_status;
 	list_remove(&child->child_elem); // parent 의 child list 에서 child 제거
+	sema_up(&child->cleanup_sema);
 
-	if(child->exit_status == -1)
-		return -1;
-	else
-		return child->exit_status;
+	return child_status;
 
 	// QUESTION: wait을 2회 이상 하면? 겹치면??
 
@@ -371,7 +368,6 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -389,7 +385,8 @@ process_exit (void) {
 	}
 
 	// QUESTION: sema_up 위치가 여기가 맞나?
-	sema_up(&curr->fork_sema);
+	sema_up(&curr->wait_sema);
+	sema_down(&thread_current()->cleanup_sema);
 
 	/* QUESTION: process termination message는 exit() 시스템 콜에서 불리니 print 필요 없나? */
 	// printf ("%s: exit(%d)\n", ...);

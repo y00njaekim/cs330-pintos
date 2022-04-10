@@ -140,8 +140,11 @@ struct thread {
 	/* Customized Lab 2-2 */
 	struct list child_list;
 	struct list_elem child_elem;
-	struct semaphore fork_sema;
+
 	struct intr_frame ff; // fork frame
+
+	struct semaphore wait_sema;
+	struct semaphore cleanup_sema;
 };
 
 /* If false (default), use round-robin scheduler.
