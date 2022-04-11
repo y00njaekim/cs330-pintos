@@ -150,10 +150,8 @@ syscall_handler (struct intr_frame *f UNUSED) {
 /* 2-2 user memory access */
 void 
 uaddr_validity_check(uint64_t *uaddr) {
-		if ((is_kernel_vaddr(uaddr)) || (uaddr = NULL) // && pml4_get_page() = null
-		)
-		exit(-1);
-	}
+	if (((uaddr == NULL) || is_kernel_vaddr(uaddr)) || (pml4_get_page(thread_current()->pml4, uaddr) == NULL)) exit(-1);
+}
 
 /* halt
  * Terminates Pintos by calling power_off() */
@@ -191,7 +189,8 @@ fork (const char *thread_name) {
 
 int
 exec(const char *cmd_line) {
-	ASSERT(cmd_line != NULL);
+	// ASSERT(cmd_line != NULL);
+	uaddr_validity_check(cmd_line);
 	// TODO: cmd_line 그대로 사용하나? 
 	// process_create_initd()에서 caller와 load 사이 race 방지 위해 복사. 여기서도 같은 방법?
 	char *cmd_copy = palloc_get_page(0); // 복사할곳=palloc_get_page(PAL_ZERO);
@@ -226,7 +225,8 @@ int wait (pid_t child_tid) {
 
 bool
 create (const char *file, unsigned initial_size) {
-	ASSERT(file != NULL); // TODO: uaddr_validity_check(file); ???
+	// ASSERT(file != NULL);
+	uaddr_validity_check(file);
 	return filesys_create(file, initial_size);
 }
 
@@ -238,7 +238,8 @@ create (const char *file, unsigned initial_size) {
 
 bool
 remove (const char *file) {
-	ASSERT(file != NULL); // TODO: uaddr_validity_check(file); ???
+	// ASSERT(file != NULL);
+	uaddr_validity_check(file);
 	return filesys_remove(file);
 }
 
@@ -250,7 +251,8 @@ remove (const char *file) {
 
 int
 open (const char *file) {
-	ASSERT(file != NULL);
+	// ASSERT(file != NULL);
+	uaddr_validity_check(file);
 	// (1) file 오픈 - filesys.c의 filesys_open(const char *name)
 	struct file *open_file = filesys_open(file);
 	if(open_file == NULL) return -1;
@@ -272,7 +274,9 @@ open (const char *file) {
 struct file*
 fd_match_file(int fd) {
 	struct thread *curr = thread_current();
-	ASSERT(fd >= 0 && fd < FD_MAX);
+	// ASSERT(fd >= 0 && fd < FD_MAX);
+	if(fd < 0 || fd >= FD_MAX)
+		exit(-1);
 	return curr->fd_table[fd];
 }
 
@@ -299,8 +303,10 @@ filesize (int fd) {
 
 int
 read (int fd, void *buffer, unsigned size) {
+	uaddr_validity_check(buffer);
 	// (1) 파일에 접근할 때에는 lock 걸기
 	lock_acquire(&file_lock);
+
 	int bytes_read;
 
 	if(fd == 0) {
@@ -325,11 +331,14 @@ read (int fd, void *buffer, unsigned size) {
 	else {
 		// (2) 해당 fd에 해당하는 file 매치
 		struct file *matched_file = fd_match_file(fd);
-		if(matched_file == NULL) return -1;
+		if(matched_file == NULL) {
+			lock_release(&file_lock);
+			return -1;
+		}
 		bytes_read = file_read(matched_file, buffer, size);
 	}
-
 	lock_release(&file_lock);
+
 	return bytes_read;
 	// (3) fd = 0:	reads from the keyboard using input_getc()
 	// (4) fd != 0:	reads size bytes from the file open as fd into buffer
@@ -348,6 +357,7 @@ read (int fd, void *buffer, unsigned size) {
 
 int
 write (int fd, const void *buffer, unsigned size) {
+	uaddr_validity_check(buffer);
 	lock_acquire(&file_lock);
 	int bytes_written = 0;
 
@@ -358,7 +368,10 @@ write (int fd, const void *buffer, unsigned size) {
 	}	else {
 		// (2) 해당 fd에 해당하는 file 매치
 		struct file *matched_file = fd_match_file(fd);
-		if(matched_file == NULL) return -1;
+		if(matched_file == NULL) {
+			lock_release(&file_lock);
+			return -1;
+		}
 		// (4) fd != 1:	writes size bytes from buffer to the open file
 		bytes_written = file_write(matched_file, buffer, size);
 	}
