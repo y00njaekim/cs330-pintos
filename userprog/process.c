@@ -269,20 +269,6 @@ process_exec (void *f_name) {
 	char *file_name = f_name;
 	bool success;
 
-	/* Customized */
-	char *argv[64];
-	int argc = 0;
-
-	char *token;
-	char *save_ptr;
-	token = strtok_r(file_name, " ", &save_ptr);
-	while (token != NULL) {
-		argv[argc] = token;
-		token = strtok_r(NULL, " ", &save_ptr);
-		argc++;
-	}
-	argv[argc] = '\0';
-
 	/* We cannot use the intr_frame in the thread structure.
 	 * This is because when current thread rescheduled,
 	 * it stores the execution information to the member. */
@@ -300,14 +286,6 @@ process_exec (void *f_name) {
 
 	/* And then load the binary */
 	success = load (file_name, &_if);
-
-	/* Customized */
-	void **p_rsp = &_if.rsp;	// CPU 로부터 push 된 rip 와 rsp 는 R 해당 없음
-	argument_passing(p_rsp, argv, argc);
-
-	/* Customized Lab 2-1 (4) */
-	_if.R.rdi = argc; // rdi, rsi는 gp_register R 명시
-	_if.R.rsi = _if.rsp + sizeof(void *);
 
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
@@ -513,6 +491,20 @@ load (const char *file_name, struct intr_frame *if_) {
 	bool success = false;
 	int i;
 
+	/* Customized */
+	char *argv[64];
+	int argc = 0;
+
+	char *token;
+	char *save_ptr;
+	token = strtok_r(file_name, " ", &save_ptr);
+	while (token != NULL) {
+		argv[argc] = token;
+		token = strtok_r(NULL, " ", &save_ptr);
+		argc++;
+	}
+	argv[argc] = '\0';
+
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
 	if (t->pml4 == NULL)
@@ -600,6 +592,13 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+
+	void **p_rsp = &if_->rsp;	// CPU 로부터 push 된 rip 와 rsp 는 R 해당 없음
+	argument_passing(p_rsp, argv, argc);
+
+	/* Customized Lab 2-1 (4) */
+	if_->R.rdi = argc; // rdi, rsi는 gp_register R 명시
+	if_->R.rsi = if_->rsp + sizeof(void *);
 
 	success = true;
 
