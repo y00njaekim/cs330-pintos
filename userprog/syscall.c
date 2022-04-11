@@ -306,6 +306,7 @@ read (int fd, void *buffer, unsigned size) {
 	uaddr_validity_check(buffer);
 	// (1) 파일에 접근할 때에는 lock 걸기
 	lock_acquire(&file_lock);
+
 	int bytes_read;
 
 	if(fd == 0) {
@@ -330,11 +331,14 @@ read (int fd, void *buffer, unsigned size) {
 	else {
 		// (2) 해당 fd에 해당하는 file 매치
 		struct file *matched_file = fd_match_file(fd);
-		if(matched_file == NULL) return -1;
+		if(matched_file == NULL) {
+			lock_release(&file_lock);
+			return -1;
+		}
 		bytes_read = file_read(matched_file, buffer, size);
 	}
-
 	lock_release(&file_lock);
+
 	return bytes_read;
 	// (3) fd = 0:	reads from the keyboard using input_getc()
 	// (4) fd != 0:	reads size bytes from the file open as fd into buffer
@@ -364,7 +368,10 @@ write (int fd, const void *buffer, unsigned size) {
 	}	else {
 		// (2) 해당 fd에 해당하는 file 매치
 		struct file *matched_file = fd_match_file(fd);
-		if(matched_file == NULL) return -1;
+		if(matched_file == NULL) {
+			lock_release(&file_lock);
+			return -1;
+		}
 		// (4) fd != 1:	writes size bytes from buffer to the open file
 		bytes_written = file_write(matched_file, buffer, size);
 	}
