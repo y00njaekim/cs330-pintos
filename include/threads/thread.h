@@ -143,6 +143,7 @@ struct thread {
 
 	struct intr_frame ff; // fork frame
 
+	struct semaphore fork_sema;
 	struct semaphore wait_sema;
 	struct semaphore cleanup_sema;
 };

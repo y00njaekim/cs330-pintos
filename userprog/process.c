@@ -88,9 +88,12 @@ initd (void *f_name) {
  * TID_ERROR if the thread cannot be created. */
 tid_t
 process_fork (const char *name, struct intr_frame *if_ UNUSED) {
+	struct thread *curr = thread_current();
+	tid_t tid = thread_create(name,
+														PRI_DEFAULT, __do_fork, curr);
+	sema_down(&curr->fork_sema);
 	/* Clone current thread to new thread.*/
-	return thread_create (name,
-			PRI_DEFAULT, __do_fork, thread_current ());
+	return tid;
 }
 
 #ifndef VM
@@ -105,7 +108,7 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	bool writable;
 
 	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
-	if(is_kernel_vaddr(va)) return false;	// TODO: true or false?
+	if(is_kernel_vaddr(va)) return true;	// TODO: true or false?
 
 	/* 2. Resolve VA from the parent's page map level 4. */
 	parent_page = pml4_get_page (parent->pml4, va);
@@ -198,7 +201,7 @@ __do_fork (void *aux) {
 		current->fd_table[fd_step] = file_duplicate(parent->fd_table[fd_step]);
 	}
 	current->fdx = parent->fdx;
-	// sema_up(&current->fsema);
+	sema_up(&parent->fork_sema);
 
 	process_init ();
 
@@ -207,9 +210,8 @@ __do_fork (void *aux) {
 		do_iret (&if_);
 error:
 	current->exit_status = TID_ERROR;
-	// sema_up(&current->fsema);
+	sema_up(&parent->fork_sema);
 	exit(TID_ERROR);
-	thread_exit ();
 }
 
 /* Customized */
