@@ -24,6 +24,8 @@
 #include "vm/vm.h"
 #endif
 
+static struct lock load_lock;
+
 static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
@@ -36,6 +38,12 @@ void argument_passing(void **p_rsp, char **argv, int argc);
 static void
 process_init (void) {
 	struct thread *current = thread_current ();
+}
+
+/* Customized */
+void
+load_lock_init (void) {
+	lock_init(&load_lock); // YOONJAE's TRY
 }
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
@@ -299,17 +307,6 @@ process_exec (void *f_name) {
 	NOT_REACHED ();
 }
 
-
-/* Waits for thread TID to die and returns its exit status.  If
- * it was terminated by the kernel (i.e. killed due to an
- * exception), returns -1.  If TID is invalid or if it was not a
- * child of the calling process, or if process_wait() has already
- * been successfully called for the given TID, returns -1
- * immediately, without waiting.
- *
- * This function will be implemented in problem 2-2.  For now, it
- * does nothing. */
-
 struct thread *
 find_child(tid_t child_tid) {
 	struct thread *curr = thread_current();
@@ -324,8 +321,18 @@ find_child(tid_t child_tid) {
 	return child;
 }
 
+/* Waits for thread TID to die and returns its exit status.  If
+ * it was terminated by the kernel (i.e. killed due to an
+ * exception), returns -1.  If TID is invalid or if it was not a
+ * child of the calling process, or if process_wait() has already
+ * been successfully called for the given TID, returns -1
+ * immediately, without waiting.
+ *
+ * This function will be implemented in problem 2-2.  For now, it
+ * does nothing. */
+
 int
-process_wait (tid_t child_tid UNUSED) {
+process_wait (tid_t child_tid) {
 	/* TID와 PID?
 	 * syscall에서는 PID를 통해 추적하지만 핀토스에서는 process와 thread가 대응되므로
 	 * PID를 요구하는 syscall에 tid를 대입하는 것이 당위적이다. 
@@ -371,10 +378,13 @@ process_exit (void) {
 		if (curr->fd_table[fd_step] == NULL) continue;
 		close(fd_step);
 	}
+	if(curr->loaded_file != NULL) {
+		memset(curr->loaded_file, 0, sizeof curr->loaded_file);
+	}
 
 	// QUESTION: sema_up 위치가 여기가 맞나?
 	sema_up(&curr->wait_sema);
-	sema_down(&thread_current()->cleanup_sema);
+	sema_down(&curr->cleanup_sema);
 
 	/* QUESTION: process termination message는 exit() 시스템 콜에서 불리니 print 필요 없나? */
 	// printf ("%s: exit(%d)\n", ...);
@@ -512,11 +522,15 @@ load (const char *file_name, struct intr_frame *if_) {
 	process_activate (thread_current ());
 
 	/* Open executable file. */
+	lock_acquire(&load_lock);
 	file = filesys_open (file_name);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
+		lock_release(&load_lock);
 		goto done;
 	}
+	file_deny_write(file);
+	lock_release(&load_lock);
 
 	/* Read and verify executable header. */
 	if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -604,7 +618,13 @@ load (const char *file_name, struct intr_frame *if_) {
 
 done:
 	/* We arrive here whether the load is successful or not. */
+	lock_acquire(&load_lock);
 	file_close (file);
+	if(success) {
+		strlcpy(&t->loaded_file, file_name, sizeof t->loaded_file);
+	}
+	lock_release(&load_lock);
+
 	return success;
 }
 

@@ -146,6 +146,8 @@ struct thread {
 	struct semaphore fork_sema;
 	struct semaphore wait_sema;
 	struct semaphore cleanup_sema;
+
+	char loaded_file[15];
 };
 
 /* If false (default), use round-robin scheduler.
@@ -196,6 +198,8 @@ int eval_recent_cpu(struct thread *);
 int eval_load_avg(int);
 
 void do_iret (struct intr_frame *tf);
+
+bool is_loaded(const char *);
 
 // DEBUG
 void debug_list_ready_list(void);
