@@ -176,10 +176,8 @@ halt(void) {
 void
 exit(int status) {
 	struct thread *curr = thread_current();
-	ASSERT(((curr) != NULL && (curr)->magic == 0xcd6abf4b)); // YOONJAE's TRY
 	curr->exit_status = status;	// thread 자료구조에 스레드 exit시 status 만들기
 	printf ("%s: exit(%d)\n", thread_name(), status);	// Process termination messages
-	barrier();
 	thread_exit();
 }
 
