@@ -133,12 +133,13 @@ sema_try_down (struct semaphore *sema) {
 void
 sema_up (struct semaphore *sema) {
 	// TODO : list_sort 필요성 이해
-	bool is_unblocked = false;
 	enum intr_level old_level;
 
 	ASSERT (sema != NULL);
-
+	
 	old_level = intr_disable ();
+
+	bool is_unblocked = false;
 	if (!list_empty (&sema->waiters)) {
 		list_sort(&sema->waiters, prior_elem, NULL);
 		thread_unblock(list_entry(list_pop_front(&sema->waiters),

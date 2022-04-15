@@ -115,7 +115,7 @@ struct thread {
 
 	/* Customized
 	 * file-related structures */
-	struct file *fd_table[FD_MAX]; // TODO : FD_MAX = 128 ?? 
+	struct file **fd_table; // TODO : FD_MAX = 128 ?? 
 	int fdx; // file open시 매번 순회하여 찾을지, 혹은 fd_max 설정 시 순회할지
 
 	/* thread status for system call */

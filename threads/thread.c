@@ -249,6 +249,9 @@ thread_create (const char *name, int priority,
 	/* Initialize thread. */
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
+	// t->fd_table = (struct file**) malloc(sizeof(struct file*) * FD_MAX);
+	t->fd_table = palloc_get_page(0);
+	memset(t->fd_table, 0, FD_MAX * (sizeof(struct file *))); // 두번째, 세번째 항 확인
 
 	/* Call the kernel_thread if it scheduled.
 	 * Note) rdi is 1st argument, and rsi is 2nd argument. */
@@ -302,7 +305,7 @@ thread_unblock (struct thread *t) {
 	ASSERT (is_thread (t));
 
 	old_level = intr_disable ();
-	ASSERT (t->status == THREAD_BLOCKED);
+	ASSERT(t->status == THREAD_BLOCKED);
 	list_insert_ordered (&ready_list, &t->elem, prior_elem, NULL);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
@@ -695,7 +698,6 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->magic = THREAD_MAGIC;
 
 	/* Customized */
-	memset(t->fd_table, 0, FD_MAX * (sizeof(struct file *)));	// 두번째, 세번째 항 확인
 	t->fdx = 2;
 
 	/* Customized */
