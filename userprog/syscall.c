@@ -29,6 +29,7 @@ static struct lock file_lock;
 
 void uaddr_validity_check(uint64_t *uaddr);
 struct file *fd_match_file(int fd);
+void file_lock_init(void);
 
 /* System call.
  *
@@ -56,7 +57,13 @@ syscall_init (void) {
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
 
 	/* Customized */
-	lock_init(&file_lock);
+	// lock_init(&file_lock);
+}
+
+/* Customized */
+void
+file_lock_init (void) {
+	lock_init(&file_lock); // YOONJAE's TRY
 }
 
 // void halt (void) NO_RETURN;
@@ -92,7 +99,7 @@ syscall_init (void) {
 
 /* The main system call interface */
 void
-syscall_handler (struct intr_frame *f UNUSED) {
+syscall_handler (struct intr_frame *f) {
 	// TODO: Your implementation goes here.
 	switch(f->R.rax) {
 		case SYS_HALT:			/* Halt the operating system. */
@@ -179,6 +186,7 @@ exit(int status) {
 
 pid_t
 fork (const char *thread_name) {
+	uaddr_validity_check((uint64_t) thread_name);
 	return process_fork(thread_name, &thread_current()->ff);
 }
 
@@ -190,7 +198,7 @@ fork (const char *thread_name) {
 int
 exec(const char *cmd_line) {
 	// ASSERT(cmd_line != NULL);
-	uaddr_validity_check(cmd_line);
+	uaddr_validity_check((uint64_t) cmd_line);
 	// TODO: cmd_line 그대로 사용하나? 
 	// process_create_initd()에서 caller와 load 사이 race 방지 위해 복사. 여기서도 같은 방법?
 	char *cmd_copy = palloc_get_page(0); // 복사할곳=palloc_get_page(PAL_ZERO);
@@ -226,7 +234,7 @@ int wait (pid_t child_tid) {
 bool
 create (const char *file, unsigned initial_size) {
 	// ASSERT(file != NULL);
-	uaddr_validity_check(file);
+	uaddr_validity_check((uint64_t) file);
 	return filesys_create(file, initial_size);
 }
 
@@ -239,7 +247,7 @@ create (const char *file, unsigned initial_size) {
 bool
 remove (const char *file) {
 	// ASSERT(file != NULL);
-	uaddr_validity_check(file);
+	uaddr_validity_check((uint64_t) file);
 	return filesys_remove(file);
 }
 
@@ -252,7 +260,7 @@ remove (const char *file) {
 int
 open (const char *file) {
 	// ASSERT(file != NULL);
-	uaddr_validity_check(file);
+	uaddr_validity_check((uint64_t) file);
 	// (1) file 오픈 - filesys.c의 filesys_open(const char *name)
 	struct file *open_file = filesys_open(file);
 	if(open_file == NULL) return -1;
@@ -262,6 +270,10 @@ open (const char *file) {
 	// (3) 성공: return fd, 실패: -1
 	if(curr->fdx == FD_MAX) return -1;	// fd값이 꽉 찼습니다
 	// TODO: open이 fail하는 경우의 수가 fd_table이 꽉 찬 경우 밖에 없나?
+
+	if(is_loaded(file))
+		file_deny_write(open_file);
+
 	curr->fd_table[curr->fdx] = open_file;
 	return curr->fdx;
 }
@@ -275,7 +287,7 @@ struct file*
 fd_match_file(int fd) {
 	struct thread *curr = thread_current();
 	// ASSERT(fd >= 0 && fd < FD_MAX);
-	if(fd < 0 || fd >= FD_MAX)
+	if(fd < 2 || fd >= FD_MAX) // YOONJAE's TRY
 		exit(-1);
 	return curr->fd_table[fd];
 }
@@ -328,7 +340,7 @@ read (int fd, void *buffer, unsigned size) {
 		bytes_read = size;
 
 	}
-	else {
+	else if(fd > 1) {
 		// (2) 해당 fd에 해당하는 file 매치
 		struct file *matched_file = fd_match_file(fd);
 		if(matched_file == NULL) {
@@ -357,7 +369,7 @@ read (int fd, void *buffer, unsigned size) {
 
 int
 write (int fd, const void *buffer, unsigned size) {
-	uaddr_validity_check(buffer);
+	uaddr_validity_check((uint64_t) buffer);
 	lock_acquire(&file_lock);
 	int bytes_written = 0;
 
@@ -365,7 +377,7 @@ write (int fd, const void *buffer, unsigned size) {
 	if(fd == 1) {
 		putbuf(buffer, size); // TODO: sizeof(buffer) < size 인 경우에 putbuf while문에서 무한루프?
 		bytes_written = size;	
-	}	else {
+	}	else if (fd > 1) {
 		// (2) 해당 fd에 해당하는 file 매치
 		struct file *matched_file = fd_match_file(fd);
 		if(matched_file == NULL) {
