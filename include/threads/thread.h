@@ -205,5 +205,6 @@ bool is_loaded(const char *);
 void debug_list_ready_list(void);
 void debug_mlfq_status(void);
 void debug_all_list_of_thread(void);
+void debug_list(struct list *);
 
 #endif /* threads/thread.h */

@@ -305,6 +305,8 @@ thread_unblock (struct thread *t) {
 	ASSERT (is_thread (t));
 
 	old_level = intr_disable ();
+	if(debug_mode) printf("current thread(pid: %d) unblocking pid: %d\n", thread_current()->tid, t->tid);
+	debug_all_list_of_thread();
 	ASSERT(t->status == THREAD_BLOCKED);
 	list_insert_ordered (&ready_list, &t->elem, prior_elem, NULL);
 	t->status = THREAD_READY;
@@ -739,6 +741,7 @@ next_thread_to_run (void) {
 /* Use iretq to launch the thread */
 void
 do_iret (struct intr_frame *tf) {
+	// if(debug_mode) printf("######## DO_IRET ########");
 	__asm __volatile(
 			"movq %0, %%rsp\n"
 			"movq 0(%%rsp),%%r15\n"
@@ -761,7 +764,9 @@ do_iret (struct intr_frame *tf) {
 			"movw (%%rsp),%%es\n"
 			"addq $32, %%rsp\n"
 			"iretq"
-			: : "g" ((uint64_t) tf) : "memory");
+			:
+			: "g"((uint64_t)tf)
+			: "memory");
 }
 
 /* Switching the thread by activating the new thread's page
@@ -918,47 +923,47 @@ is_loaded(const char *file) {
 	return loaded;
 }
 
-	/* DEBUG */
-	void
-	debug_list_ready_list(void)
+/* DEBUG */
+void
+debug_list_ready_list(void)
+{
+	if (!debug_mode)
+		return;
+	enum intr_level old_level;
+	old_level = intr_disable();
+
+	struct thread *t;
+	struct list_elem *t_elem;
+	printf("\n---------------------------------------------\n");
+
+	struct thread *curr = thread_current();
+	if (curr == idle_thread)
+		printf("curr - idle %d[%s](priority: %d)\n", curr->tid, curr->name, curr->priority);
+	else
+		printf("curr - %d[%s](priority: %d)\n", curr->tid, curr->name, curr->priority);
+
+	printf("ready - ");
+	for (t_elem = list_begin(&ready_list); t_elem != list_end(&ready_list); t_elem = list_next(t_elem))
 	{
-		if (!debug_mode)
-			return;
-		enum intr_level old_level;
-		old_level = intr_disable();
-
-		struct thread *t;
-		struct list_elem *t_elem;
-		printf("\n---------------------------------------------\n");
-
-		struct thread *curr = thread_current();
-		if (curr == idle_thread)
-			printf("curr - idle %d[%s](priority: %d)\n", curr->tid, curr->name, curr->priority);
+		t = list_entry(t_elem, struct thread, elem);
+		// QUESTION : idle_thread 체크 필요하려나? 일단 필요하다고 생각 - init_thread 에서 생성한 특정 thread 를 idle 로 지목한다고 이해중
+		if (t != idle_thread)
+			printf("%d[%s](priority: %d), ", t->tid, t->name, t->priority);
 		else
-			printf("curr - %d[%s](priority: %d)\n", curr->tid, curr->name, curr->priority);
-
-		printf("ready - ");
-		for (t_elem = list_begin(&ready_list); t_elem != list_end(&ready_list); t_elem = list_next(t_elem))
-		{
-			t = list_entry(t_elem, struct thread, elem);
-			// QUESTION : idle_thread 체크 필요하려나? 일단 필요하다고 생각 - init_thread 에서 생성한 특정 thread 를 idle 로 지목한다고 이해중
-			if (t != idle_thread)
-				printf("%d[%s](priority: %d), ", t->tid, t->name, t->priority);
-			else
-				printf("idle %d[%s](priority: %d), ", t->tid, t->name, t->priority);
-		}
-		printf("\nsleep - ");
-		for (t_elem = list_begin(&sleep_list); t_elem != list_end(&sleep_list); t_elem = list_next(t_elem))
-		{
-			t = list_entry(t_elem, struct thread, elem);
-			// QUESTION : idle_thread 체크 필요하려나? 일단 필요하다고 생각 - init_thread 에서 생성한 특정 thread 를 idle 로 지목한다고 이해중
-			if (t != idle_thread)
-				printf("%d[%s](wakeuptick: %lld), ", t->tid, t->name, t->wake_up_tick);
-			else
-				printf("idle %d[%s](wakeuptick: %lld), ", t->tid, t->name, t->wake_up_tick);
-		}
-		printf("\n---------------------------------------------\n");
-		intr_set_level(old_level);
+			printf("idle %d[%s](priority: %d), ", t->tid, t->name, t->priority);
+	}
+	printf("\nsleep - ");
+	for (t_elem = list_begin(&sleep_list); t_elem != list_end(&sleep_list); t_elem = list_next(t_elem))
+	{
+		t = list_entry(t_elem, struct thread, elem);
+		// QUESTION : idle_thread 체크 필요하려나? 일단 필요하다고 생각 - init_thread 에서 생성한 특정 thread 를 idle 로 지목한다고 이해중
+		if (t != idle_thread)
+			printf("%d[%s](wakeuptick: %lld), ", t->tid, t->name, t->wake_up_tick);
+		else
+			printf("idle %d[%s](wakeuptick: %lld), ", t->tid, t->name, t->wake_up_tick);
+	}
+	printf("\n---------------------------------------------\n");
+	intr_set_level(old_level);
 }
 
 void
@@ -978,9 +983,35 @@ debug_all_list_of_thread (void) {
 		t = list_entry(t_elem, struct thread, thread_elem);
 		// QUESTION : idle_thread 체크 필요하려나? 일단 필요하다고 생각 - init_thread 에서 생성한 특정 thread 를 idle 로 지목한다고 이해중
 		if(t == idle_thread) {
-			printf("idle %d[%s], ", t->tid, t->name);
+			printf("idle %d[%s](status: %d), ", t->tid, t->name, t->status);
 		} else {
-			printf("%d[%s], ", t->tid, t->name);
+			printf("%d[%s](status: %d), ", t->tid, t->name, t->status);
+		}
+	}
+	printf("\n---------------------------------------------\n");
+	intr_set_level(old_level);
+};
+
+void
+debug_list(struct list *l) {
+	if(!debug_mode)
+		return;
+	enum intr_level old_level;
+	old_level = intr_disable ();
+
+	struct thread *t;
+	struct list_elem *t_elem;
+	
+	printf("\n---------------------------------------------\n");
+	printf("Thread - ");
+	for (t_elem = list_begin(l); t_elem != list_end(l); t_elem = list_next(t_elem))
+	{
+		t = list_entry(t_elem, struct thread, elem);
+		// QUESTION : idle_thread 체크 필요하려나? 일단 필요하다고 생각 - init_thread 에서 생성한 특정 thread 를 idle 로 지목한다고 이해중
+		if(t == idle_thread) {
+			printf("idle %d[%s](status: %d), ", t->tid, t->name, t->status);
+		} else {
+			printf("%d[%s](status: %d), ", t->tid, t->name, t->status);
 		}
 	}
 	printf("\n---------------------------------------------\n");

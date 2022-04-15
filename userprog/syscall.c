@@ -204,6 +204,8 @@ exec(const char *cmd_line) {
 	char *cmd_copy = palloc_get_page(0); // 복사할곳=palloc_get_page(PAL_ZERO);
 	if (cmd_copy == NULL) exit(-1);		// if(복사할곳 == NULL) exit(-1);
 	strlcpy(cmd_copy, cmd_line, strlen(cmd_line) + 1);	// 복사본 = strlcpy(복사할곳, cmd_line, strlen(cmd_line) + 1);
+	if(debug_mode) printf("\n@@@@@@@@@@@@ EXEC FUNTION (curr pid : %d) @@@@@@@@@@@@", thread_current()->tid);
+	debug_all_list_of_thread();
 	if (process_exec(cmd_copy) == -1) exit(-1);		// QUESTION: palloc_free_page (cmd_copy) 해주어야 하나? 에러인 경우에?
 	// TODO: 성공적으로 실행되면 자식 리스트에서 제거하여야 하나?
 	NOT_REACHED ();	// thread_exit()에서의 용법 참고. exec은 exit status 없이 리턴하지 않는다.
@@ -214,6 +216,8 @@ exec(const char *cmd_line) {
  */
 
 int wait (pid_t child_tid) {
+	if(debug_mode) printf("\n@@@@@@@@@@@@ WAIT FUNTION (curr pid : %d) (wait pid: %d) @@@@@@@@@@@@", thread_current()->tid, child_tid);
+	debug_all_list_of_thread();
 	return process_wait(child_tid);
 }
 
