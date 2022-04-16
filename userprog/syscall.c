@@ -259,7 +259,9 @@ open (const char *file) {
 	// ASSERT(file != NULL);
 	uaddr_validity_check((uint64_t) file);
 	// (1) file 오픈 - filesys.c의 filesys_open(const char *name)
+	lock_acquire(&file_lock);
 	struct file *open_file = filesys_open(file);
+	lock_release(&file_lock);
 	if(open_file == NULL) return -1;
 	// (2) 해당 file에 fd 부여
 	struct thread *curr = thread_current();
