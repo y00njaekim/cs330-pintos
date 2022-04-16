@@ -29,7 +29,6 @@ static struct lock file_lock;
 
 void uaddr_validity_check(uint64_t *uaddr);
 struct file *fd_match_file(int fd);
-void file_lock_init(void);
 
 /* System call.
  *
@@ -57,13 +56,7 @@ syscall_init (void) {
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
 
 	/* Customized */
-	// lock_init(&file_lock);
-}
-
-/* Customized */
-void
-file_lock_init (void) {
-	lock_init(&file_lock); // YOONJAE's TRY
+	lock_init(&file_lock);
 }
 
 // void halt (void) NO_RETURN;
@@ -275,9 +268,6 @@ open (const char *file) {
 	if(curr->fdx == FD_MAX) return -1;	// fd값이 꽉 찼습니다
 	// TODO: open이 fail하는 경우의 수가 fd_table이 꽉 찬 경우 밖에 없나?
 
-	if(is_loaded(file))
-		file_deny_write(open_file);
-
 	curr->fd_table[curr->fdx] = open_file;
 	return curr->fdx;
 }
@@ -320,8 +310,6 @@ filesize (int fd) {
 int
 read (int fd, void *buffer, unsigned size) {
 	uaddr_validity_check(buffer);
-	// (1) 파일에 접근할 때에는 lock 걸기
-	lock_acquire(&file_lock);
 
 	int bytes_read;
 
@@ -348,12 +336,13 @@ read (int fd, void *buffer, unsigned size) {
 		// (2) 해당 fd에 해당하는 file 매치
 		struct file *matched_file = fd_match_file(fd);
 		if(matched_file == NULL) {
-			lock_release(&file_lock);
 			return -1;
 		}
+		// (1) 파일에 접근할 때에는 lock 걸기
+		lock_acquire(&file_lock);
 		bytes_read = file_read(matched_file, buffer, size);
+		lock_release(&file_lock);
 	}
-	lock_release(&file_lock);
 
 	return bytes_read;
 	// (3) fd = 0:	reads from the keyboard using input_getc()
@@ -374,7 +363,6 @@ read (int fd, void *buffer, unsigned size) {
 int
 write (int fd, const void *buffer, unsigned size) {
 	uaddr_validity_check((uint64_t) buffer);
-	lock_acquire(&file_lock);
 	int bytes_written = 0;
 
 	// (3) fd = 1:	writes on the console using putbuf()
@@ -385,14 +373,13 @@ write (int fd, const void *buffer, unsigned size) {
 		// (2) 해당 fd에 해당하는 file 매치
 		struct file *matched_file = fd_match_file(fd);
 		if(matched_file == NULL) {
-			lock_release(&file_lock);
 			return -1;
 		}
+		lock_acquire(&file_lock);
 		// (4) fd != 1:	writes size bytes from buffer to the open file
 		bytes_written = file_write(matched_file, buffer, size);
+		lock_release(&file_lock);
 	}
-
-	lock_release(&file_lock);
 	return bytes_written;
 }
 

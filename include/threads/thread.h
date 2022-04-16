@@ -147,7 +147,8 @@ struct thread {
 	struct semaphore wait_sema;
 	struct semaphore cleanup_sema;
 
-	char loaded_file[15];
+	/* Customized Lab 2-5 */
+	struct file* loaded_file;
 };
 
 /* If false (default), use round-robin scheduler.

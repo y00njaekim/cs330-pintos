@@ -715,7 +715,7 @@ init_thread (struct thread *t, const char *name, int priority) {
 	sema_init(&t->cleanup_sema, 0);
 
 	/* Customized Lab 2-5 */
-	memset(t->loaded_file, 0, sizeof t->loaded_file);
+	t->loaded_file = NULL;
 
 	t->nice = NICE_DEFAULT;
 	t->recent_cpu = RECENT_CPU_DEFAULT;
@@ -905,22 +905,6 @@ allocate_tid (void) {
 	lock_release (&tid_lock);
 
 	return tid;
-}
-
-/* Customized Lab 2-5 */
-bool
-is_loaded(const char *file) {
-	bool loaded = false;
-	struct thread *t;
-	struct list_elem *t_elem;
-	for (t_elem = list_begin(&thread_list); t_elem != list_end(&thread_list); t_elem = list_next(t_elem)) {
-		t = list_entry(t_elem, struct thread, thread_elem);
-		if(strcmp(t->loaded_file, file) == 0) {
-			loaded = true;
-			break;
-		}
-	}
-	return loaded;
 }
 
 /* DEBUG */
