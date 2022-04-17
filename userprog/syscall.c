@@ -366,6 +366,7 @@ int
 write (int fd, const void *buffer, unsigned size) {
 	uaddr_validity_check((uint64_t) buffer);
 	int bytes_written = 0;
+	lock_acquire(&file_lock);
 
 	// (3) fd = 1:	writes on the console using putbuf()
 	if(fd == 1) {
@@ -375,13 +376,13 @@ write (int fd, const void *buffer, unsigned size) {
 		// (2) 해당 fd에 해당하는 file 매치
 		struct file *matched_file = fd_match_file(fd);
 		if(matched_file == NULL) {
+			lock_release(&file_lock);
 			return -1;
 		}
-		lock_acquire(&file_lock);
 		// (4) fd != 1:	writes size bytes from buffer to the open file
 		bytes_written = file_write(matched_file, buffer, size);
-		lock_release(&file_lock);
 	}
+	lock_release(&file_lock);
 	return bytes_written;
 }
 
