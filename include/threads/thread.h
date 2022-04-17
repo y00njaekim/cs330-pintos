@@ -115,7 +115,7 @@ struct thread {
 
 	/* Customized
 	 * file-related structures */
-	struct file *fd_table[FD_MAX]; // TODO : FD_MAX = 128 ?? 
+	struct file **fd_table; // TODO : FD_MAX = 128 ?? 
 	int fdx; // file open시 매번 순회하여 찾을지, 혹은 fd_max 설정 시 순회할지
 
 	/* thread status for system call */
@@ -147,7 +147,8 @@ struct thread {
 	struct semaphore wait_sema;
 	struct semaphore cleanup_sema;
 
-	char loaded_file[15];
+	/* Customized Lab 2-5 */
+	struct file* loaded_file;
 };
 
 /* If false (default), use round-robin scheduler.
@@ -205,5 +206,6 @@ bool is_loaded(const char *);
 void debug_list_ready_list(void);
 void debug_mlfq_status(void);
 void debug_all_list_of_thread(void);
+void debug_list(struct list *);
 
 #endif /* threads/thread.h */

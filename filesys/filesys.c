@@ -1,4 +1,5 @@
 #include "filesys/filesys.h"
+#include "threads/synch.h"
 #include <debug.h>
 #include <stdio.h>
 #include <string.h>
@@ -17,7 +18,7 @@ static void do_format (void);
  * If FORMAT is true, reformats the file system. */
 void
 filesys_init (bool format) {
-	filesys_disk = disk_get (0, 1);
+	filesys_disk = disk_get(0, 1);
 	if (filesys_disk == NULL)
 		PANIC ("hd0:1 (hdb) not present, file system initialization failed");
 
@@ -79,14 +80,14 @@ filesys_create (const char *name, off_t initial_size) {
  * or if an internal memory allocation fails. */
 struct file *
 filesys_open (const char *name) {
-	struct dir *dir = dir_open_root ();
+	struct dir *dir = dir_open_root();
 	struct inode *inode = NULL;
 
 	if (dir != NULL)
 		dir_lookup (dir, name, &inode);
 	dir_close (dir);
 
-	return file_open (inode);
+	return file_open(inode);
 }
 
 /* Deletes the file named NAME.

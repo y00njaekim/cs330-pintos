@@ -82,9 +82,6 @@ main (void) {
 	thread_init ();
 	console_init ();
 
-	file_lock_init();
-	load_lock_init();
-
 	/* Initialize memory system. */
 	mem_end = palloc_init ();
 	malloc_init ();
@@ -103,6 +100,7 @@ main (void) {
 #ifdef USERPROG
 	exception_init ();
 	syscall_init ();
+	load_lock_init();
 #endif
 	/* Start thread scheduler and enable interrupts. */
 	thread_start ();

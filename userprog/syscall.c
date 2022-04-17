@@ -29,7 +29,6 @@ static struct lock file_lock;
 
 void uaddr_validity_check(uint64_t *uaddr);
 struct file *fd_match_file(int fd);
-void file_lock_init(void);
 
 /* System call.
  *
@@ -57,13 +56,7 @@ syscall_init (void) {
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
 
 	/* Customized */
-	// lock_init(&file_lock);
-}
-
-/* Customized */
-void
-file_lock_init (void) {
-	lock_init(&file_lock); // YOONJAE's TRY
+	lock_init(&file_lock);
 }
 
 // void halt (void) NO_RETURN;
@@ -204,6 +197,8 @@ exec(const char *cmd_line) {
 	char *cmd_copy = palloc_get_page(0); // 복사할곳=palloc_get_page(PAL_ZERO);
 	if (cmd_copy == NULL) exit(-1);		// if(복사할곳 == NULL) exit(-1);
 	strlcpy(cmd_copy, cmd_line, strlen(cmd_line) + 1);	// 복사본 = strlcpy(복사할곳, cmd_line, strlen(cmd_line) + 1);
+	if(debug_mode) printf("\n@@@@@@@@@@@@ EXEC FUNTION (curr pid : %d) @@@@@@@@@@@@", thread_current()->tid);
+	debug_all_list_of_thread();
 	if (process_exec(cmd_copy) == -1) exit(-1);		// QUESTION: palloc_free_page (cmd_copy) 해주어야 하나? 에러인 경우에?
 	// TODO: 성공적으로 실행되면 자식 리스트에서 제거하여야 하나?
 	NOT_REACHED ();	// thread_exit()에서의 용법 참고. exec은 exit status 없이 리턴하지 않는다.
@@ -214,6 +209,8 @@ exec(const char *cmd_line) {
  */
 
 int wait (pid_t child_tid) {
+	if(debug_mode) printf("\n@@@@@@@@@@@@ WAIT FUNTION (curr pid : %d) (wait pid: %d) @@@@@@@@@@@@", thread_current()->tid, child_tid);
+	debug_all_list_of_thread();
 	return process_wait(child_tid);
 }
 
@@ -262,7 +259,9 @@ open (const char *file) {
 	// ASSERT(file != NULL);
 	uaddr_validity_check((uint64_t) file);
 	// (1) file 오픈 - filesys.c의 filesys_open(const char *name)
+	lock_acquire(&file_lock);
 	struct file *open_file = filesys_open(file);
+	lock_release(&file_lock);
 	if(open_file == NULL) return -1;
 	// (2) 해당 file에 fd 부여
 	struct thread *curr = thread_current();
@@ -270,9 +269,6 @@ open (const char *file) {
 	// (3) 성공: return fd, 실패: -1
 	if(curr->fdx == FD_MAX) return -1;	// fd값이 꽉 찼습니다
 	// TODO: open이 fail하는 경우의 수가 fd_table이 꽉 찬 경우 밖에 없나?
-
-	if(is_loaded(file))
-		file_deny_write(open_file);
 
 	curr->fd_table[curr->fdx] = open_file;
 	return curr->fdx;
@@ -316,8 +312,6 @@ filesize (int fd) {
 int
 read (int fd, void *buffer, unsigned size) {
 	uaddr_validity_check(buffer);
-	// (1) 파일에 접근할 때에는 lock 걸기
-	lock_acquire(&file_lock);
 
 	int bytes_read;
 
@@ -344,12 +338,13 @@ read (int fd, void *buffer, unsigned size) {
 		// (2) 해당 fd에 해당하는 file 매치
 		struct file *matched_file = fd_match_file(fd);
 		if(matched_file == NULL) {
-			lock_release(&file_lock);
 			return -1;
 		}
+		// (1) 파일에 접근할 때에는 lock 걸기
+		lock_acquire(&file_lock);
 		bytes_read = file_read(matched_file, buffer, size);
+		lock_release(&file_lock);
 	}
-	lock_release(&file_lock);
 
 	return bytes_read;
 	// (3) fd = 0:	reads from the keyboard using input_getc()
@@ -370,7 +365,6 @@ read (int fd, void *buffer, unsigned size) {
 int
 write (int fd, const void *buffer, unsigned size) {
 	uaddr_validity_check((uint64_t) buffer);
-	lock_acquire(&file_lock);
 	int bytes_written = 0;
 
 	// (3) fd = 1:	writes on the console using putbuf()
@@ -381,14 +375,13 @@ write (int fd, const void *buffer, unsigned size) {
 		// (2) 해당 fd에 해당하는 file 매치
 		struct file *matched_file = fd_match_file(fd);
 		if(matched_file == NULL) {
-			lock_release(&file_lock);
 			return -1;
 		}
+		lock_acquire(&file_lock);
 		// (4) fd != 1:	writes size bytes from buffer to the open file
 		bytes_written = file_write(matched_file, buffer, size);
+		lock_release(&file_lock);
 	}
-
-	lock_release(&file_lock);
 	return bytes_written;
 }
 
