@@ -101,6 +101,7 @@ main (void) {
 	exception_init ();
 	syscall_init ();
 	load_lock_init();
+	load_sema_init();
 #endif
 	/* Start thread scheduler and enable interrupts. */
 	thread_start ();

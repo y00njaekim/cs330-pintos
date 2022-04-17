@@ -26,6 +26,7 @@ void syscall_handler (struct intr_frame *);
 /* TODO (DONE) : lock_init(&file_lock) 을 어디에서 해야하는 거임 !? 
 	 의사결정 -> syscall_init */
 static struct lock file_lock;
+static struct semaphore file_sema;
 
 void uaddr_validity_check(uint64_t *uaddr);
 struct file *fd_match_file(int fd);
@@ -57,6 +58,7 @@ syscall_init (void) {
 
 	/* Customized */
 	lock_init(&file_lock);
+	sema_init(&file_sema, 1);
 }
 
 // void halt (void) NO_RETURN;
@@ -259,9 +261,11 @@ open (const char *file) {
 	// ASSERT(file != NULL);
 	uaddr_validity_check((uint64_t) file);
 	// (1) file 오픈 - filesys.c의 filesys_open(const char *name)
-	lock_acquire(&file_lock);
+	// lock_acquire(&file_lock);
+	sema_down(&file_sema);
 	struct file *open_file = filesys_open(file);
-	lock_release(&file_lock);
+	// lock_release(&file_lock);
+	sema_up(&file_sema);
 	if(open_file == NULL) return -1;
 	// (2) 해당 file에 fd 부여
 	struct thread *curr = thread_current();
@@ -341,9 +345,11 @@ read (int fd, void *buffer, unsigned size) {
 			return -1;
 		}
 		// (1) 파일에 접근할 때에는 lock 걸기
-		lock_acquire(&file_lock);
+		// lock_acquire(&file_lock);
+		sema_down(&file_sema);
 		bytes_read = file_read(matched_file, buffer, size);
-		lock_release(&file_lock);
+		// lock_release(&file_lock);
+		sema_up(&file_sema);
 	}
 
 	return bytes_read;
@@ -366,7 +372,8 @@ int
 write (int fd, const void *buffer, unsigned size) {
 	uaddr_validity_check((uint64_t) buffer);
 	int bytes_written = 0;
-	lock_acquire(&file_lock);
+	// lock_acquire(&file_lock);
+	sema_down(&file_sema);
 
 	// (3) fd = 1:	writes on the console using putbuf()
 	if(fd == 1) {
@@ -376,13 +383,15 @@ write (int fd, const void *buffer, unsigned size) {
 		// (2) 해당 fd에 해당하는 file 매치
 		struct file *matched_file = fd_match_file(fd);
 		if(matched_file == NULL) {
-			lock_release(&file_lock);
+			// lock_release(&file_lock);
+			sema_up(&file_sema);
 			return -1;
 		}
 		// (4) fd != 1:	writes size bytes from buffer to the open file
 		bytes_written = file_write(matched_file, buffer, size);
 	}
-	lock_release(&file_lock);
+	// lock_release(&file_lock);
+	sema_up(&file_sema);
 	return bytes_written;
 }
 

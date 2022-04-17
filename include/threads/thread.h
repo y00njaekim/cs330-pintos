@@ -132,7 +132,7 @@ struct thread {
 
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
-	unsigned magic;                     /* Detects stack overflow. */
+	
 
 	/* Customized */
 	int64_t wake_up_tick;               /* Information for switching */
@@ -149,6 +149,8 @@ struct thread {
 
 	/* Customized Lab 2-5 */
 	struct file* loaded_file;
+
+	unsigned magic;                     /* Detects stack overflow. */
 };
 
 /* If false (default), use round-robin scheduler.
