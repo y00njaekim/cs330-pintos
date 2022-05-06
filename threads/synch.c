@@ -133,13 +133,17 @@ sema_try_down (struct semaphore *sema) {
 void
 sema_up (struct semaphore *sema) {
 	// TODO : list_sort 필요성 이해
-	bool is_unblocked = false;
 	enum intr_level old_level;
 
 	ASSERT (sema != NULL);
 
 	old_level = intr_disable ();
+
+	bool is_unblocked = false;
 	if (!list_empty (&sema->waiters)) {
+		if(debug_mode)
+			printf("### sema_up >>> ");
+		debug_list(&sema->waiters);
 		list_sort(&sema->waiters, prior_elem, NULL);
 		thread_unblock(list_entry(list_pop_front(&sema->waiters),
 															struct thread, elem));
@@ -150,7 +154,7 @@ sema_up (struct semaphore *sema) {
 
 	/* DONE : if 문 안에다가 thread_yield() 넣었을 때 에러 발생
 	   -> 의사결정 후 if 문 안에 넣는 판단 시 error 해결 */
-	if(is_unblocked) thread_yield();
+	if(is_unblocked && !intr_context()) thread_yield();
 		
 }
 
@@ -372,7 +376,7 @@ lock_release (struct lock *lock) {
 			/* TODO : 그냥 max 가져올 거면 list_insert order 쓰는 overhead 없애기
 			아니면 sort 후 pop_front 로 바꾸기 */
 			curr->priority = list_entry(list_max(&curr->donor_list, prior_donor_elem, NULL), struct thread, donor_elem)->priority;
-	}
+		}
 	}
 
 	sema_up (&lock->semaphore);
