@@ -63,6 +63,8 @@ static int64_t write_cnt;
 void
 console_init (void) {
 	lock_init (&console_lock);
+
+	// QUESTION : use_console_lock 은 어디에 / 왜 필요한 거야?
 	use_console_lock = true;
 }
 

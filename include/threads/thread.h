@@ -5,6 +5,8 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
+#include "filesys/file.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -31,6 +33,8 @@ typedef int tid_t;
 #define NICE_DEFAULT 0
 #define RECENT_CPU_DEFAULT 0
 #define LOAD_AVG_DEFAULT 0 
+
+#define	FD_MAX 128						/* Max value of fd */
 
 /* A kernel thread or user process.
  *
@@ -109,6 +113,14 @@ struct thread {
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem; /* List element. It is in ready_list / waiting_list of lock / sleep_list , and so on. */
 
+	/* Customized
+	 * file-related structures */
+	struct file **fd_table; // TODO : FD_MAX = 128 ?? 
+	int fdx; // file open시 매번 순회하여 찾을지, 혹은 fd_max 설정 시 순회할지
+
+	/* thread status for system call */
+	int exit_status;
+
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
@@ -120,10 +132,25 @@ struct thread {
 
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
-	unsigned magic;                     /* Detects stack overflow. */
+	
 
 	/* Customized */
 	int64_t wake_up_tick;               /* Information for switching */
+
+	/* Customized Lab 2-2 */
+	struct list child_list;
+	struct list_elem child_elem;
+
+	struct intr_frame ff; // fork frame
+
+	struct semaphore fork_sema;
+	struct semaphore wait_sema;
+	struct semaphore cleanup_sema;
+
+	/* Customized Lab 2-5 */
+	struct file* loaded_file;
+
+	unsigned magic;                     /* Detects stack overflow. */
 };
 
 /* If false (default), use round-robin scheduler.
@@ -175,9 +202,12 @@ int eval_load_avg(int);
 
 void do_iret (struct intr_frame *tf);
 
+bool is_loaded(const char *);
+
 // DEBUG
 void debug_list_ready_list(void);
 void debug_mlfq_status(void);
 void debug_all_list_of_thread(void);
+void debug_list(struct list *);
 
 #endif /* threads/thread.h */

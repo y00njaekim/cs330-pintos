@@ -249,6 +249,9 @@ thread_create (const char *name, int priority,
 	/* Initialize thread. */
 	init_thread (t, name, priority);
 	tid = t->tid = allocate_tid ();
+	// t->fd_table = (struct file**) malloc(sizeof(struct file*) * FD_MAX);
+	t->fd_table = palloc_get_page(0);
+	memset(t->fd_table, 0, FD_MAX * (sizeof(struct file *))); // 두번째, 세번째 항 확인
 
 	/* Call the kernel_thread if it scheduled.
 	 * Note) rdi is 1st argument, and rsi is 2nd argument. */
@@ -260,6 +263,8 @@ thread_create (const char *name, int priority,
 	t->tf.ss = SEL_KDSEG;
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
+
+	list_push_back(&thread_current()->child_list, &t->child_elem);
 
 	/* Add to run queue. */
 	thread_unblock (t);
@@ -300,7 +305,9 @@ thread_unblock (struct thread *t) {
 	ASSERT (is_thread (t));
 
 	old_level = intr_disable ();
-	ASSERT (t->status == THREAD_BLOCKED);
+	if(debug_mode) printf("current thread(pid: %d) unblocking pid: %d\n", thread_current()->tid, t->tid);
+	debug_all_list_of_thread();
+	ASSERT(t->status == THREAD_BLOCKED);
 	list_insert_ordered (&ready_list, &t->elem, prior_elem, NULL);
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
@@ -481,8 +488,8 @@ thread_get_priority (void) {
 
 void
 priority_update_all() {
-	struct thread *curr = thread_current ();
-	struct lock *waiting_lock;
+	// struct thread *curr = thread_current ();
+	// struct lock *waiting_lock;
 
 	struct thread *t;
 	struct list_elem *t_elem;
@@ -688,14 +695,27 @@ init_thread (struct thread *t, const char *name, int priority) {
 	memset (t, 0, sizeof *t);
 	t->status = THREAD_BLOCKED;
 	strlcpy (t->name, name, sizeof t->name);
-	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
+	t->tf.rsp = (uint64_t)t + PGSIZE - sizeof(void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
-	
+
+	/* Customized */
+	t->fdx = 2;
+
 	/* Customized */
 	t->original_priority = priority;
 	t->waiting_lock = NULL;
 	list_init(&t->donor_list);
+
+	/* Customized Lab 2-2 */
+	t->exit_status = 0;
+	list_init(&t->child_list);
+	sema_init(&t->fork_sema, 0);
+	sema_init(&t->wait_sema, 0);
+	sema_init(&t->cleanup_sema, 0);
+
+	/* Customized Lab 2-5 */
+	t->loaded_file = NULL;
 
 	t->nice = NICE_DEFAULT;
 	t->recent_cpu = RECENT_CPU_DEFAULT;
@@ -743,7 +763,9 @@ do_iret (struct intr_frame *tf) {
 			"movw (%%rsp),%%es\n"
 			"addq $32, %%rsp\n"
 			"iretq"
-			: : "g" ((uint64_t) tf) : "memory");
+			:
+			: "g"((uint64_t)tf)
+			: "memory");
 }
 
 /* Switching the thread by activating the new thread's page
@@ -886,18 +908,19 @@ allocate_tid (void) {
 
 /* DEBUG */
 void
-debug_list_ready_list (void) {
-	if(!debug_mode)
+debug_list_ready_list(void)
+{
+	if (!debug_mode)
 		return;
 	enum intr_level old_level;
-	old_level = intr_disable ();
+	old_level = intr_disable();
 
 	struct thread *t;
 	struct list_elem *t_elem;
 	printf("\n---------------------------------------------\n");
 
 	struct thread *curr = thread_current();
-	if(curr == idle_thread)
+	if (curr == idle_thread)
 		printf("curr - idle %d[%s](priority: %d)\n", curr->tid, curr->name, curr->priority);
 	else
 		printf("curr - %d[%s](priority: %d)\n", curr->tid, curr->name, curr->priority);
@@ -907,7 +930,7 @@ debug_list_ready_list (void) {
 	{
 		t = list_entry(t_elem, struct thread, elem);
 		// QUESTION : idle_thread 체크 필요하려나? 일단 필요하다고 생각 - init_thread 에서 생성한 특정 thread 를 idle 로 지목한다고 이해중
-		if(t != idle_thread)
+		if (t != idle_thread)
 			printf("%d[%s](priority: %d), ", t->tid, t->name, t->priority);
 		else
 			printf("idle %d[%s](priority: %d), ", t->tid, t->name, t->priority);
@@ -917,7 +940,7 @@ debug_list_ready_list (void) {
 	{
 		t = list_entry(t_elem, struct thread, elem);
 		// QUESTION : idle_thread 체크 필요하려나? 일단 필요하다고 생각 - init_thread 에서 생성한 특정 thread 를 idle 로 지목한다고 이해중
-		if(t != idle_thread)
+		if (t != idle_thread)
 			printf("%d[%s](wakeuptick: %lld), ", t->tid, t->name, t->wake_up_tick);
 		else
 			printf("idle %d[%s](wakeuptick: %lld), ", t->tid, t->name, t->wake_up_tick);
@@ -943,9 +966,35 @@ debug_all_list_of_thread (void) {
 		t = list_entry(t_elem, struct thread, thread_elem);
 		// QUESTION : idle_thread 체크 필요하려나? 일단 필요하다고 생각 - init_thread 에서 생성한 특정 thread 를 idle 로 지목한다고 이해중
 		if(t == idle_thread) {
-			printf("idle %d[%s], ", t->tid, t->name);
+			printf("idle %d[%s](status: %d), ", t->tid, t->name, t->status);
 		} else {
-			printf("%d[%s], ", t->tid, t->name);
+			printf("%d[%s](status: %d), ", t->tid, t->name, t->status);
+		}
+	}
+	printf("\n---------------------------------------------\n");
+	intr_set_level(old_level);
+};
+
+void
+debug_list(struct list *l) {
+	if(!debug_mode)
+		return;
+	enum intr_level old_level;
+	old_level = intr_disable ();
+
+	struct thread *t;
+	struct list_elem *t_elem;
+	
+	printf("\n---------------------------------------------\n");
+	printf("Thread - ");
+	for (t_elem = list_begin(l); t_elem != list_end(l); t_elem = list_next(t_elem))
+	{
+		t = list_entry(t_elem, struct thread, elem);
+		// QUESTION : idle_thread 체크 필요하려나? 일단 필요하다고 생각 - init_thread 에서 생성한 특정 thread 를 idle 로 지목한다고 이해중
+		if(t == idle_thread) {
+			printf("idle %d[%s](status: %d), ", t->tid, t->name, t->status);
+		} else {
+			printf("%d[%s](status: %d), ", t->tid, t->name, t->status);
 		}
 	}
 	printf("\n---------------------------------------------\n");
