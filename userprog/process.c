@@ -26,12 +26,11 @@
 
 static struct lock load_lock;
 static struct semaphore load_sema;
-void load_lock_init (void) {
-	lock_init (&load_lock);
-}
+
 void load_sema_init(void) {
 	sema_init(&load_sema, 1);
 }
+
 static void process_cleanup (void);
 static bool load (const char *file_name, struct intr_frame *if_);
 static void initd (void *f_name);
@@ -530,18 +529,14 @@ load (const char *file_name, struct intr_frame *if_) {
 	process_activate (thread_current ());
 
 	/* Open executable file. */
-	// lock_acquire(&load_lock);
 	sema_down(&load_sema);
-	// printf(&load_sema);
 	file = filesys_open(file_name);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
-		// lock_release(&load_lock);
 		sema_up(&load_sema);
 		goto done;
 	}
 	file_deny_write(file);
-	// lock_release(&load_lock);
 	sema_up(&load_sema);
 
 	/* Read and verify executable header. */
