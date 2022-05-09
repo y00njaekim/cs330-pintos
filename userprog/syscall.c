@@ -261,7 +261,7 @@ open (const char *file) {
 	uaddr_validity_check((uint64_t) file);
 	// (1) file 오픈 - filesys.c의 filesys_open(const char *name)
 	sema_down(&file_sema);
-	struct file *open_file = filesys_open(file);;
+	struct file *open_file = filesys_open(file);
 	sema_up(&file_sema);
 	if(open_file == NULL) return -1;
 	// (2) 해당 file에 fd 부여

@@ -3,6 +3,7 @@
 #include "threads/malloc.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
+#include "lib/kernel/hash.h"
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -63,10 +64,9 @@ err:
 /* Find VA from spt and return page. On error, return NULL. */
 struct page *
 spt_find_page (struct supplemental_page_table *spt UNUSED, void *va UNUSED) {
-	struct page *page = NULL;
 	/* TODO: Fill this function. */
-
-	return page;
+	// TODO: vaddr.h 또는 mmu.h 에 있는 함수들 중에서 ASSERT해야 하는 것 있는지 확인
+	return page_lookup(va);	// page_lookup 함수 옮겨오기
 }
 
 /* Insert PAGE into spt with validation. */
@@ -75,7 +75,7 @@ spt_insert_page (struct supplemental_page_table *spt UNUSED,
 		struct page *page UNUSED) {
 	int succ = false;
 	/* TODO: Fill this function. */
-
+	if (hash_insert (&spt->pages, &page->hash_elem) == NULL) succ = true; // null이 반환되면 제대로 insert 된 것이고, 아니면 같은 항목이 존재
 	return succ;
 }
 
@@ -112,11 +112,20 @@ static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
-
+	frame = malloc(sizeof(struct frame));	// CHECK: 에러 핸들링
+	// palloc_get_page(PAL_USER)
+	void *frame_get = palloc_get_page(PAL_USER);		// TRY: 문제있으면 void *로 캐스팅 없이
+	// Obtains a single free page and returns its kernel virtual address. 즉, frame_get은 frame->kva와 같다.
+	if(frame_get == NULL) return vm_evict_frame();			// evict the page and return it
+	// QUESTION: vm_evict_frame()에서 error가 발생하면 null을 리턴하는데, vm_get_frame도 null 리턴하는게 맞나 또는 error handling 필요?
+	frame->kva = frame_get;
+	frame->page = NULL; 	// CHECK
+	
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
 	return frame;
 }
+
 
 /* Growing the stack. */
 static void
@@ -153,7 +162,11 @@ bool
 vm_claim_page (void *va UNUSED) {
 	struct page *page = NULL;
 	/* TODO: Fill this function */
-
+	/* PSUEDO
+	 * page 할당하고 (malloc(sizeof(struct page))인지 palloc_get_page 헷갈림)
+	 * page->va = va
+	 * 혹시 더 initialize 할 것 있으면 넣기
+	 */
 	return vm_do_claim_page (page);
 }
 
@@ -167,13 +180,15 @@ vm_do_claim_page (struct page *page) {
 	page->frame = frame;
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
-
+	// pml4_set_page
+	if(!pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->rw)) return false; // memory allocation failed
 	return swap_in (page, frame->kva);
 }
 
 /* Initialize new supplemental page table */
 void
 supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
+	hash_init (&spt->pages, page_hash, page_less, NULL);	// TODO: page_hash, page_less 정의하기 (confluence 에서 복사)
 }
 
 /* Copy supplemental page table from src to dst */
