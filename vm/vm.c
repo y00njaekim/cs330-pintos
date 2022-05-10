@@ -3,6 +3,7 @@
 #include "threads/malloc.h"
 #include "vm/vm.h"
 #include "vm/inspect.h"
+#include "threads/mmu.h"
 #include "lib/kernel/hash.h"
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
@@ -47,7 +48,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 
 	ASSERT (VM_TYPE(type) != VM_UNINIT)
 
-	struct supplemental_page_table *spt = &thread_current ()->spt;
+	struct supplemental_page_table *spt = &thread_current()->spt;
 
 	/* Check wheter the upage is already occupied or not. */
 	if (spt_find_page (spt, upage) == NULL) {
@@ -115,9 +116,12 @@ vm_get_frame (void) {
 	frame = malloc(sizeof(struct frame));	// CHECK: 에러 핸들링
 	// palloc_get_page(PAL_USER)
 	void *frame_get = palloc_get_page(PAL_USER);		// TRY: 문제있으면 void *로 캐스팅 없이
+
 	// Obtains a single free page and returns its kernel virtual address. 즉, frame_get은 frame->kva와 같다.
-	if(frame_get == NULL) return vm_evict_frame();			// evict the page and return it
+	// if(frame_get == NULL) return vm_evict_frame();			// evict the page and return it
 	// QUESTION: vm_evict_frame()에서 error가 발생하면 null을 리턴하는데, vm_get_frame도 null 리턴하는게 맞나 또는 error handling 필요?
+	if(frame_get == NULL) PANIC("todo"); // You don't need to handle swap out for now in case of page allocation failure. Just mark those case with PANIC ("todo") for now.
+
 	frame->kva = frame_get;
 	frame->page = NULL; 	// CHECK
 	
@@ -158,6 +162,11 @@ vm_dealloc_page (struct page *page) {
 }
 
 /* Claim the page that allocate on VA. */
+/* [Gitbook]
+ * Claims the page to allocate va.
+ * You will first need to get a page and then
+ * calls vm_do_claim_page with the page.
+ */
 bool
 vm_claim_page (void *va UNUSED) {
 	struct page *page = NULL;
@@ -167,7 +176,10 @@ vm_claim_page (void *va UNUSED) {
 	 * page->va = va
 	 * 혹시 더 initialize 할 것 있으면 넣기
 	 */
-	return vm_do_claim_page (page);
+	
+	page = malloc(sizeof(struct page));
+	page->va = va;
+	return vm_do_claim_page(page);
 }
 
 /* Claim the PAGE and set up the mmu. */
@@ -182,6 +194,7 @@ vm_do_claim_page (struct page *page) {
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 	// pml4_set_page
 	if(!pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->rw)) return false; // memory allocation failed
+	// Yoonjae's Question: swap_in 은 왜 하는 거지?
 	return swap_in (page, frame->kva);
 }
 
