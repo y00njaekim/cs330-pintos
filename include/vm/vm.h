@@ -49,7 +49,7 @@ struct page {
 	/* Your implementation */
 	struct hash_elem hash_elem; /* Hash table element. */
 	bool rw;	/* To check if the page is writable or read-only. */
-
+	// CHECK: enum vm_type vmtype 추가?
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
 	union {

@@ -783,6 +783,23 @@ lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
+
+	/* TODO:
+	 * file_seek (file, ofs); 추가
+	 * ofs는 어디서? aux를 통해 전달! 
+	 * aux에서 접근할 수 있도록 하는 자료구조 찾아보기 (이미 정의되어 있는가?)
+	 */
+
+	// TODO: 기존 load_segment에 있었던 로딩 부분을 lazy_load_segment에서 구현
+	// 기존 page load 부분에서 kpage 등을 주어진 page를 이용해 수정
+	/* Load this page. */
+		if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes) {
+			palloc_free_page (kpage);
+			return false;
+		}
+		memset (kpage + page_read_bytes, 0, page_zero_bytes);
+	
+	return true;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -815,6 +832,8 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
 		void *aux = NULL;
+		// TODO: 여기서 aux 설정해서 ofs 같은거 넘겨줘야함
+		// 새로 자료구조 만들어야하나? 만들어야 할듯 aux자료구조 ㄲ
 		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
 					writable, lazy_load_segment, aux))
 			return false;
@@ -838,6 +857,30 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
 
+	/* TODO: GitBook 참고하여 작성함
+	 * 첫번째 스택 페이지는 lazily하게 할당될 필요 없으므로, 
+	 * 로드타임에 할당하고 초기화한뒤, 마커로 표시 */
+
+	/* 기존 코드와 같은 역할, 다른 방법이므로 기존 코드를 reference로 옆에 주석 달아두겠음 */
+	kpage = palloc_get_page (PAL_USER | PAL_ZERO);	// kpage palloc 대신에 vm_alloc_page_with_initializer 사용하면 될 듯
+	// vm_alloc_page_with_initializer에서 type 항에 marker 표시 해주기
+	if (kpage != NULL) {
+		success = install_page (((uint8_t *) USER_STACK) - PGSIZE, kpage, true);	// 이게 위에 있는 stack_bottom에 들어감.
+		// 기존에는 install_page(stack_bottom) 했는데, 여기 첫번째 항이 stack_bottom
+		// 첫번째 항 stack_bottom이 upage에 들어갔으니까, 바뀐 코드에서도 upage 대신에 stack_bottom 넣으면 될듯
+		// 무슨말이냐면, 위에 있는 vm_alloc_page_with... 여기 두번째 항 upage에 stack_bottom 넣는다는 뜻
+		// 여기서는 install_page 대신에 vm_claim_page 하면 될듯?	
+		// vm_claim_page(va) 에서 va도 page claim 부르는 주소니까 스택바텀이 맞다.
+		if (success)
+			if_->rsp = USER_STACK;
+		else
+			palloc_free_page (kpage);
+	}
 	return success;
+	// return success;
+
+	/* 참고용 기존 셋업스택 코드 (project2) */
+	// uint8_t *kpage;
+	// bool success = false;
 }
 #endif /* VM */

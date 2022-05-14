@@ -46,7 +46,9 @@ bool
 vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
 
-	ASSERT (VM_TYPE(type) != VM_UNINIT)
+	ASSERT (VM_TYPE(type) != VM_UNINIT);
+	
+	struct page *matched_page;
 
 	struct supplemental_page_table *spt = &thread_current()->spt;
 
@@ -55,8 +57,21 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		/* TODO: Create the page, fetch the initialier according to the VM type,
 		 * TODO: and then create "uninit" page struct by calling uninit_new. You
 		 * TODO: should modify the field after calling the uninit_new. */
+		/* PSUEDO */
+		
+		matched_page = malloc(sizeof(struct page));	// TODO: matched_page 이름 맞게끔 바꾸기
+		matched_page->va = upage;	// TODO: 맞는지 확인
+		// 여기에 vm 타입에 따라 마지막 항 바꿔주는것 필요
+		// 마지막 항이 uninit.h에 있는 (*page_initializer) 항인듯.
+		// page_initializer에 vm 타입
+		uninit_new(matched_page, upage, init, type, aux, ?);	// QUESTION: initializer 무엇?
+		// CHECK: modify the field after calling the uninit_new
+		// QUESTION: writable 설정은 어디서?
+		matched_page->rw = writable;
+		// CHECK: Using VM_TYPE macro defined in vm.h can be handy.
 
 		/* TODO: Insert the page into the spt. */
+		return spt_insert_page(spt, matched_page);
 	}
 err:
 	return false;
@@ -91,6 +106,8 @@ static struct frame *
 vm_get_victim (void) {
 	struct frame *victim = NULL;
 	 /* TODO: The policy for eviction is up to you. */
+	 /* NOTICE: vm_evict_frame에서 victim이 null인경우 에러처리 안했기 때문에 
+	  * 이 함수에서 victim get 못하면 NULL 반환해야 한다 */
 
 	return victim;
 }
@@ -101,8 +118,8 @@ static struct frame *
 vm_evict_frame (void) {
 	struct frame *victim UNUSED = vm_get_victim ();
 	/* TODO: swap out the victim and return the evicted frame. */
-
-	return NULL;
+	swap_out(victim->page);
+	return victim;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -113,7 +130,7 @@ static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
-	frame = malloc(sizeof(struct frame));	// CHECK: 에러 핸들링
+	frame = malloc(sizeof(struct frame));	// TODO: 에러 핸들링
 	// palloc_get_page(PAL_USER)
 	void *frame_get = palloc_get_page(PAL_USER);		// TRY: 문제있으면 void *로 캐스팅 없이
 
@@ -149,7 +166,12 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
+	// validate 해주기
+	/* TODO: 이 함수 수정해서 resolve the page struct corresponding to the faulted addr.
+	 * by coinsulting to the spt through spt_find_page */
+	// 즉 무슨소리냐. 무슨소릴까? 확인부탁.
 
+	// anon / file_back 확인해서 그에 맞는 initializer 실행 -> uninit_initialize
 	return vm_do_claim_page (page);
 }
 
@@ -177,7 +199,7 @@ vm_claim_page (void *va UNUSED) {
 	 * 혹시 더 initialize 할 것 있으면 넣기
 	 */
 	
-	page = malloc(sizeof(struct page));
+	page = malloc(sizeof(struct page));		// TODO: 에러 핸들링
 	page->va = va;
 	return vm_do_claim_page(page);
 }

@@ -394,6 +394,8 @@ remove_elem (struct hash *h, struct hash_elem *e) {
 	list_remove (&e->list_elem);
 }
 
+/* page functions, reference: GitBook */
+
 /* Returns a hash value for page p. */
 unsigned
 page_hash (struct hash_elem *p_, void *aux UNUSED) {
