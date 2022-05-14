@@ -786,18 +786,22 @@ lazy_load_segment (struct page *page, void *aux) {
 
 	/* TODO:
 	 * file_seek (file, ofs); 추가
-	 * ofs는 어디서? aux를 통해 전달! 
+	 * ofs는 어디서? aux를 통해 전달! (구조체를 vm.h에 정의)
+	 * file, ofs, page_read_bytes, zero_bytes, writeable
 	 * aux에서 접근할 수 있도록 하는 자료구조 찾아보기 (이미 정의되어 있는가?)
 	 */
 
+	// QUESTION: void *kva = page->frame->kva
 	// TODO: 기존 load_segment에 있었던 로딩 부분을 lazy_load_segment에서 구현
 	// 기존 page load 부분에서 kpage 등을 주어진 page를 이용해 수정
 	/* Load this page. */
 		if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes) {
-			palloc_free_page (kpage);
+			// palloc_free_page (kpage);
+			// vm_alloc_page_with_initializer 에서 할당을 하는데,
+			// 본 함수에서 할당하지는 않으니까 palloc 부분은 기존과 다르게 필요없다. 
 			return false;
 		}
-		memset (kpage + page_read_bytes, 0, page_zero_bytes);
+		memset (kpage + page_read_bytes, 0, page_zero_bytes);	// kpage 대신 page의 frame에 있는 kva
 	
 	return true;
 }
@@ -864,8 +868,10 @@ setup_stack (struct intr_frame *if_) {
 	/* 기존 코드와 같은 역할, 다른 방법이므로 기존 코드를 reference로 옆에 주석 달아두겠음 */
 	kpage = palloc_get_page (PAL_USER | PAL_ZERO);	// kpage palloc 대신에 vm_alloc_page_with_initializer 사용하면 될 듯
 	// vm_alloc_page_with_initializer에서 type 항에 marker 표시 해주기
+	kpage = vm_alloc_page_with_initializer(VM_ANON|VM_MARKER_0, stack_bottom, true);
 	if (kpage != NULL) {
 		success = install_page (((uint8_t *) USER_STACK) - PGSIZE, kpage, true);	// 이게 위에 있는 stack_bottom에 들어감.
+		success = vm_claim_page(stack_bottom);
 		// 기존에는 install_page(stack_bottom) 했는데, 여기 첫번째 항이 stack_bottom
 		// 첫번째 항 stack_bottom이 upage에 들어갔으니까, 바뀐 코드에서도 upage 대신에 stack_bottom 넣으면 될듯
 		// 무슨말이냐면, 위에 있는 vm_alloc_page_with... 여기 두번째 항 upage에 stack_bottom 넣는다는 뜻
@@ -873,8 +879,9 @@ setup_stack (struct intr_frame *if_) {
 		// vm_claim_page(va) 에서 va도 page claim 부르는 주소니까 스택바텀이 맞다.
 		if (success)
 			if_->rsp = USER_STACK;
+			// ERASE: thread_current()->stack_bottom = stack_bottom; 이건 왜 하는거지?
 		else
-			palloc_free_page (kpage);
+			palloc_free_page (kpage);	// 요건 마찬가지로 필요없음 아닌가 필요할수도 저 위에처럼 구현하면
 	}
 	return success;
 	// return success;

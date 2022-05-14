@@ -64,7 +64,12 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		// 여기에 vm 타입에 따라 마지막 항 바꿔주는것 필요
 		// 마지막 항이 uninit.h에 있는 (*page_initializer) 항인듯.
 		// page_initializer에 vm 타입
-		uninit_new(matched_page, upage, init, type, aux, ?);	// QUESTION: initializer 무엇?
+		// if (vm_type = VM_ANON) intializer = anon_initializer
+		bool (*initializer)(struct page *, enum vm_type, void *);	// 마지막 void 포인터는 address (ex)kva)
+		if(VM_TYPE(type) == VM_ANON) matched_page->uninit->page_initializer = anon_initializer;	// 얘처럼 하면 왜 안됨?
+		else if(VM_TYPE(type) == VM_ANON) initializer = file_backed_initializer;
+		// else if file backed = fildfds
+		uninit_new(matched_page, upage, init, type, aux, initializer);	// QUESTION: initializer 무엇?
 		// CHECK: modify the field after calling the uninit_new
 		// QUESTION: writable 설정은 어디서?
 		matched_page->rw = writable;
@@ -151,7 +156,7 @@ vm_get_frame (void) {
 /* Growing the stack. */
 static void
 vm_stack_growth (void *addr UNUSED) {
-}
+} 
 
 /* Handle the fault on write_protected page */
 static bool
@@ -165,11 +170,41 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
 	struct page *page = NULL;
 	/* TODO: Validate the fault */
+	// bogus 중에서도 lazy_load인지? 아니면 잘못된 곳에 접근해서 발생한 pf인지?
+	// is_kernel_vaddr 이거 체크해줘야 하는 이유가, 커널 영역에 접근하면 PF가 맞다
+	// not_present 체크해야 하는 이유가, read-only인데 쓰면 문제가 맞다
+	// 근데, user와 write 변수는 왜 신경 안써도 되냐면 -> 그 경우에 문제가 없기 때문에
+	// addr 변수가 PF가 발생한 fault_address기 때문에 저거 이용해서 체크해주면 된다.
+
 	/* TODO: Your code goes here */
 	// validate 해주기
 	/* TODO: 이 함수 수정해서 resolve the page struct corresponding to the faulted addr.
 	 * by coinsulting to the spt through spt_find_page */
-	// 즉 무슨소리냐. 무슨소릴까? 확인부탁.
+
+	// rsp 저장해야해.
+	// (1) user모드에서 접근하는거면 바로 rsp 부르면 돼.
+	// (2) kernel에서는 rsp를 따로 저장해둬야함. 
+	// 저장하는 방법: GitBook 참고
+	// such as saving rsp into struct thread on the initial transition from user to kernel mode.
+	// -> 즉, current_thread 자료구조에 rsp 저장하는거 만드세요.
+	// 그 rsp 저장하는 변수에다가 user->kernel 전환 시에 저장해놓고 커널에서 접근할때 갖다 쓰세요.
+	
+	// stack이 성장해야 하는 경우
+	// find_page 했는데 이게 null인 경우 -> 진짜 segfault이거나 아니면 stack_growth 부르는 상황일텐데,
+	// 이걸 어떻게 판단? TODO: rsp와 비교해서 8byte 이내에? 있으면 성장이고 아니면 잘못 접근한 것으로 판단 하는 등 heuristic 합의하기
+	// 1 - USER_STACK 보다 주소가 낮으면서 (스택 영역 내에 있거나)
+	// 2 - 스택의 크기가 1MB 이하이면서 (즉, addr가 USER_STACK-2^20 위에 있거나)
+	// 3 - heuristic을 만족하면 (addr가 rsp보다 작은데 (스택 바깥에 있는데). 너무 바깥 아닌경우)
+	// -> vm_stack_growth 부르세요!
+	
+	// vm_stack_growth 얼마나 성장시켜야 하나?
+	// 만약에 한 개의 page 이상을 성장시켜야 하는 경우 - 휴리스틱에 따라 이런 경우가 생길수도 있다. 
+	// 첨언하자면, 휴리스틱이 rsp 아주 밑에 있는 것도 성장해야하는 경우로 판단하는 경우
+	// 이런 경우에는 addr를 page 단위로 round down 하고, 그에 맞는 만큼 stack_growth 함수로 성장시킨다
+	// 하지만, 너무 밑에까지 성장시키는 휴리스틱은 잘못될 가능성이 높으므로, 스택 바텀과 큰 차이 안나는 곳까지만 성장시킬텐데
+	// 그런 경우에는 page 1개만큼만 성장시키면 되니까 round down 할 필요가 없다
+	// QUESTION: 비디오 참고
+
 
 	// anon / file_back 확인해서 그에 맞는 initializer 실행 -> uninit_initialize
 	return vm_do_claim_page (page);
