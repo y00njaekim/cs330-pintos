@@ -719,7 +719,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		/* Load this page. */
 		if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes) {
 			palloc_free_page (kpage);
-			return false;
+			return false; // false if disk read error occurs.
 		}
 		memset (kpage + page_read_bytes, 0, page_zero_bytes);
 
@@ -785,7 +785,7 @@ lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: VA is available when calling this function. */
 
 	/* TODO:
-	 * file_seek (file, ofs); 추가
+	 * file_seek (file, ofs); 추가 (`load_segment` 에서 하는게 맞는 듯 - yoonjae)
 	 * ofs는 어디서? aux를 통해 전달! (구조체를 vm.h에 정의)
 	 * file, ofs, page_read_bytes, zero_bytes, writeable
 	 * aux에서 접근할 수 있도록 하는 자료구조 찾아보기 (이미 정의되어 있는가?)
@@ -793,15 +793,26 @@ lazy_load_segment (struct page *page, void *aux) {
 
 	// QUESTION: void *kva = page->frame->kva
 	// TODO: 기존 load_segment에 있었던 로딩 부분을 lazy_load_segment에서 구현
-	// 기존 page load 부분에서 kpage 등을 주어진 page를 이용해 수정
+	// 기존 page load 부분에서 kpage 등을 주어진 page를 이용해 수정 (`kpage` 새로 palloc 해주는게 맞는 듯 - yoonjae)
 	/* Load this page. */
-		if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes) {
-			// palloc_free_page (kpage);
-			// vm_alloc_page_with_initializer 에서 할당을 하는데,
-			// 본 함수에서 할당하지는 않으니까 palloc 부분은 기존과 다르게 필요없다. 
-			return false;
-		}
-		memset (kpage + page_read_bytes, 0, page_zero_bytes);	// kpage 대신 page의 frame에 있는 kva
+	uint8_t *kpage = palloc_get_page (PAL_USER);
+	if (kpage == NULL)
+		return false;
+	if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes) {
+		palloc_free_page (kpage);
+		// vm_alloc_page_with_initializer 에서 할당을 하는데,
+		// 본 함수에서 할당하지는 않으니까 palloc 부분은 기존과 다르게 필요없다.
+		// palloc 해주는게 맞는듯 - yoonjae
+		return false;
+	}
+	memset (kpage + page_read_bytes, 0, page_zero_bytes);	// kpage 대신 page의 frame에 있는 kva
+
+	/* Add the page to the process's address space. */
+	if (!install_page (page, kpage, writable)) { // TRY: 1st parameter 로 page 를 넣어야 할지 page->va 를 넣어야 할지? page 인거 같긴 함
+		printf("fail\n");
+		palloc_free_page (kpage);
+		return false;
+	}
 	
 	return true;
 }
@@ -820,6 +831,9 @@ lazy_load_segment (struct page *page, void *aux) {
  *
  * Return true if successful, false if a memory allocation error
  * or disk read error occurs. */
+
+
+
 static bool
 load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		uint32_t read_bytes, uint32_t zero_bytes, bool writable) {
@@ -827,6 +841,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 	ASSERT (pg_ofs (upage) == 0);
 	ASSERT (ofs % PGSIZE == 0);
 
+	file_seek (file, ofs);	
 	while (read_bytes > 0 || zero_bytes > 0) {
 		/* Do calculate how to fill this page.
 		 * We will read PAGE_READ_BYTES bytes from FILE
@@ -835,9 +850,13 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
-		void *aux = NULL;
+		struct aux_load_segment *aux = malloc(sizeof(stuct aux_load_segment));
+		if(aux_load_segment == NULL) return false;
+		aux->file = file;
+		aux->page_read_bytes = page_read_bytes;
+		aux->page_write_bytes = page_write_bytes;
 		// TODO: 여기서 aux 설정해서 ofs 같은거 넘겨줘야함
-		// 새로 자료구조 만들어야하나? 만들어야 할듯 aux자료구조 ㄲ
+		// 새로 자료구조 만들어야하나? 만들어야 할듯 aux자료구조 ㄱㄱ
 		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
 					writable, lazy_load_segment, aux))
 			return false;

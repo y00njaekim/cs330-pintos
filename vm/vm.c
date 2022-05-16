@@ -48,7 +48,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 
 	ASSERT (VM_TYPE(type) != VM_UNINIT);
 	
-	struct page *matched_page;
+	struct page *npage;
 
 	struct supplemental_page_table *spt = &thread_current()->spt;
 
@@ -58,25 +58,26 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		 * TODO: and then create "uninit" page struct by calling uninit_new. You
 		 * TODO: should modify the field after calling the uninit_new. */
 		/* PSUEDO */
-		
-		matched_page = malloc(sizeof(struct page));	// TODO: matched_page 이름 맞게끔 바꾸기
-		matched_page->va = upage;	// TODO: 맞는지 확인
+		npage = malloc(sizeof(struct page));	// TODO: npage 이름 맞게끔 바꾸기
+
 		// 여기에 vm 타입에 따라 마지막 항 바꿔주는것 필요
 		// 마지막 항이 uninit.h에 있는 (*page_initializer) 항인듯.
 		// page_initializer에 vm 타입
 		// if (vm_type = VM_ANON) intializer = anon_initializer
+		// CHECK: Using VM_TYPE macro defined in vm.h can be handy.
 		bool (*initializer)(struct page *, enum vm_type, void *);	// 마지막 void 포인터는 address (ex)kva)
-		if(VM_TYPE(type) == VM_ANON) matched_page->uninit->page_initializer = anon_initializer;	// 얘처럼 하면 왜 안됨?
+		if(VM_TYPE(type) == VM_ANON) initializer = anon_initializer;	// 얘처럼 하면 왜 안됨?
 		else if(VM_TYPE(type) == VM_ANON) initializer = file_backed_initializer;
+		
 		// else if file backed = fildfds
-		uninit_new(matched_page, upage, init, type, aux, initializer);	// QUESTION: initializer 무엇?
+		uninit_new(npage, upage, init, type, aux, initializer);	// QUESTION: initializer 무엇?
+
 		// CHECK: modify the field after calling the uninit_new
 		// QUESTION: writable 설정은 어디서?
-		matched_page->rw = writable;
-		// CHECK: Using VM_TYPE macro defined in vm.h can be handy.
+		npage->rw = writable;
 
 		/* TODO: Insert the page into the spt. */
-		return spt_insert_page(spt, matched_page);
+		return spt_insert_page(spt, npage);
 	}
 err:
 	return false;
