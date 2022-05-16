@@ -10,6 +10,7 @@
 #include "../debug.h"
 #include "threads/malloc.h"
 #include "vm/vm.h"
+#include "threads/mmu.h"
 
 #define list_elem_to_hash_elem(LIST_ELEM)                       \
 	list_entry(LIST_ELEM, struct hash_elem, list_elem)
@@ -420,7 +421,7 @@ page_lookup (const void *address) {
   struct hash_elem *e;
   struct thread *curr = thread_current();
 
-  p.va = address;
+  p.va = pg_round_down(address);
 	// TODO: pages 수정하기 (struct thread안에 spt을 정의해야하는듯?)
   e = hash_find (&curr->spt.pages, &p.hash_elem);	
   return e != NULL ? hash_entry (e, struct page, hash_elem) : NULL;

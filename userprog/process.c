@@ -853,6 +853,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
 		struct aux_load_segment *aux = malloc(sizeof(struct aux_load_segment));
+		// Yoonjae's Question: aux 해제는 어디서?
 		if(aux == NULL) return false;
 		aux->file = file;
 		aux->page_read_bytes = page_read_bytes;

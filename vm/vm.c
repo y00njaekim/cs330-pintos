@@ -134,7 +134,6 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
-	printf("%d bytes\n", sizeof(struct thread));
 	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
 	frame = malloc(sizeof(struct frame));	// TODO: 에러 핸들링
@@ -178,6 +177,10 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
 	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
 	struct page *page = NULL;
+	if(is_kernel_vaddr(addr)) return false;
+	page = spt_find_page(&thread_current()->spt, pg_round_down(addr));
+	if(page == NULL) return false;
+
 	/* TODO: Validate the fault */
 	// bogus 중에서도 lazy_load인지? 아니면 잘못된 곳에 접근해서 발생한 pf인지?
 	// is_kernel_vaddr 이거 체크해줘야 하는 이유가, 커널 영역에 접근하면 PF가 맞다
@@ -236,8 +239,7 @@ vm_dealloc_page (struct page *page) {
 bool
 vm_claim_page (void *va UNUSED) {
 	struct page *page = spt_find_page(&thread_current()->spt, va);
-	if(page == NULL)
-		return false;
+	if(page == NULL) return false;
 
 	/* TODO: Fill this function */
 	/* PSUEDO
