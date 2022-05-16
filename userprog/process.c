@@ -22,6 +22,7 @@
 #include "intrinsic.h"
 #ifdef VM
 #include "vm/vm.h"
+#include "threads/malloc.h"
 #endif
 
 static struct lock load_lock;
@@ -793,26 +794,27 @@ lazy_load_segment (struct page *page, void *aux) {
 
 	// QUESTION: void *kva = page->frame->kva
 	// TODO: 기존 load_segment에 있었던 로딩 부분을 lazy_load_segment에서 구현
-	// 기존 page load 부분에서 kpage 등을 주어진 page를 이용해 수정 (`kpage` 새로 palloc 해주는게 맞는 듯 - yoonjae)
+	// 기존 page load 부분에서 kpage 등을 주어진 page를 이용해 수정
 	/* Load this page. */
-	uint8_t *kpage = palloc_get_page (PAL_USER);
-	if (kpage == NULL)
-		return false;
-	if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes) {
-		palloc_free_page (kpage);
+	struct aux_load_segment *aux_copy = aux;
+	void *kpage = page->frame->kva;
+	if (file_read(aux_copy->file, kpage, aux_copy->page_read_bytes) != (int)aux_copy->page_read_bytes)
+	{
+		// Yoonjae's Question: file_read 에서 에러핸들링? page 삭제? page->frame 삭제?
+
 		// vm_alloc_page_with_initializer 에서 할당을 하는데,
 		// 본 함수에서 할당하지는 않으니까 palloc 부분은 기존과 다르게 필요없다.
 		// palloc 해주는게 맞는듯 - yoonjae
 		return false;
 	}
-	memset (kpage + page_read_bytes, 0, page_zero_bytes);	// kpage 대신 page의 frame에 있는 kva
+	memset (kpage + aux_copy->page_read_bytes, 0, aux_copy->page_zero_bytes);	// kpage 대신 page의 frame에 있는 kva
 
 	/* Add the page to the process's address space. */
-	if (!install_page (page, kpage, writable)) { // TRY: 1st parameter 로 page 를 넣어야 할지 page->va 를 넣어야 할지? page 인거 같긴 함
-		printf("fail\n");
-		palloc_free_page (kpage);
-		return false;
-	}
+	// if (!install_page (page, kpage, writable)) { // TRY: 1st parameter 로 page 를 넣어야 할지 page->va 를 넣어야 할지? page 인거 같긴 함
+	// 	printf("fail\n");
+	// 	palloc_free_page (kpage);
+	// 	return false;
+	// }
 	
 	return true;
 }
@@ -850,11 +852,11 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
-		struct aux_load_segment *aux = malloc(sizeof(stuct aux_load_segment));
-		if(aux_load_segment == NULL) return false;
+		struct aux_load_segment *aux = malloc(sizeof(struct aux_load_segment));
+		if(aux == NULL) return false;
 		aux->file = file;
 		aux->page_read_bytes = page_read_bytes;
-		aux->page_write_bytes = page_write_bytes;
+		aux->page_zero_bytes = page_zero_bytes;
 		// TODO: 여기서 aux 설정해서 ofs 같은거 넘겨줘야함
 		// 새로 자료구조 만들어야하나? 만들어야 할듯 aux자료구조 ㄱㄱ
 		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
@@ -883,25 +885,30 @@ setup_stack (struct intr_frame *if_) {
 	/* TODO: GitBook 참고하여 작성함
 	 * 첫번째 스택 페이지는 lazily하게 할당될 필요 없으므로, 
 	 * 로드타임에 할당하고 초기화한뒤, 마커로 표시 */
-
 	/* 기존 코드와 같은 역할, 다른 방법이므로 기존 코드를 reference로 옆에 주석 달아두겠음 */
-	kpage = palloc_get_page (PAL_USER | PAL_ZERO);	// kpage palloc 대신에 vm_alloc_page_with_initializer 사용하면 될 듯
-	// vm_alloc_page_with_initializer에서 type 항에 marker 표시 해주기
-	kpage = vm_alloc_page_with_initializer(VM_ANON|VM_MARKER_0, stack_bottom, true);
-	if (kpage != NULL) {
-		success = install_page (((uint8_t *) USER_STACK) - PGSIZE, kpage, true);	// 이게 위에 있는 stack_bottom에 들어감.
-		success = vm_claim_page(stack_bottom);
+
+	if(!vm_alloc_page(VM_ANON | VM_MARKER_0, stack_bottom, true)) return false;
+	success = vm_claim_page(stack_bottom);
+
+	// uint8_t *kpage = palloc_get_page(PAL_USER | PAL_ZERO); // kpage palloc 대신에 vm_alloc_page_with_initializer 사용하면 될 듯
+	// if (kpage != NULL) {
+		// vm_alloc_page_with_initializer에서 type 항에 marker 표시 해주기
+		// if(!vm_alloc_page(VM_ANON | VM_MARKER_0, stack_bottom, true)) return false;
+		// success = install_page (stack_bottom, kpage, true);	// 이게 위에 있는 stack_bottom에 들어감.
+		// success = vm_claim_page(stack_bottom);
 		// 기존에는 install_page(stack_bottom) 했는데, 여기 첫번째 항이 stack_bottom
 		// 첫번째 항 stack_bottom이 upage에 들어갔으니까, 바뀐 코드에서도 upage 대신에 stack_bottom 넣으면 될듯
 		// 무슨말이냐면, 위에 있는 vm_alloc_page_with... 여기 두번째 항 upage에 stack_bottom 넣는다는 뜻
 		// 여기서는 install_page 대신에 vm_claim_page 하면 될듯?	
 		// vm_claim_page(va) 에서 va도 page claim 부르는 주소니까 스택바텀이 맞다.
-		if (success)
-			if_->rsp = USER_STACK;
-			// ERASE: thread_current()->stack_bottom = stack_bottom; 이건 왜 하는거지?
-		else
-			palloc_free_page (kpage);	// 요건 마찬가지로 필요없음 아닌가 필요할수도 저 위에처럼 구현하면
-	}
+	if (success)
+		if_->rsp = USER_STACK;
+		// ERASE: thread_current()->stack_bottom = stack_bottom; 이건 왜 하는거지?
+	else
+		// Yoonjae's TRY: frame free
+		vm_dealloc_frame(spt_find_page(&thread_current()->spt, stack_bottom)->frame);
+		
+		// palloc_free_page (kpage);	// 요건 마찬가지로 필요없음 아닌가 필요할수도 저 위에처럼 구현하면
 	return success;
 	// return success;
 

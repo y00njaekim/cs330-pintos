@@ -134,6 +134,7 @@ vm_evict_frame (void) {
  * space.*/
 static struct frame *
 vm_get_frame (void) {
+	printf("%d bytes\n", sizeof(struct thread));
 	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
 	frame = malloc(sizeof(struct frame));	// TODO: 에러 핸들링
@@ -151,6 +152,13 @@ vm_get_frame (void) {
 	ASSERT (frame != NULL);
 	ASSERT (frame->page == NULL);
 	return frame;
+}
+
+/* Customized */
+void
+vm_dealloc_frame (struct frame *frame) {
+	palloc_free_page(frame->kva);
+	free(frame);
 }
 
 
@@ -227,7 +235,10 @@ vm_dealloc_page (struct page *page) {
  */
 bool
 vm_claim_page (void *va UNUSED) {
-	struct page *page = NULL;
+	struct page *page = spt_find_page(&thread_current()->spt, va);
+	if(page == NULL)
+		return false;
+
 	/* TODO: Fill this function */
 	/* PSUEDO
 	 * page 할당하고 (malloc(sizeof(struct page))인지 palloc_get_page 헷갈림)
@@ -235,8 +246,6 @@ vm_claim_page (void *va UNUSED) {
 	 * 혹시 더 initialize 할 것 있으면 넣기
 	 */
 	
-	page = malloc(sizeof(struct page));		// TODO: 에러 핸들링
-	page->va = va;
 	return vm_do_claim_page(page);
 }
 
@@ -251,9 +260,11 @@ vm_do_claim_page (struct page *page) {
 
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 	// pml4_set_page
-	if(!pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->rw)) return false; // memory allocation failed
-	// Yoonjae's Question: swap_in 은 왜 하는 거지?
-	return swap_in (page, frame->kva);
+	if(pml4_get_page (thread_current()->pml4, page->va) == NULL
+		&& pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->rw)) return swap_in (page, frame->kva);
+		
+	// Yoonjae's QUESTION: 실패시 메모리 해제 안해도 됨 !?
+	return false; // memory allocation failed
 }
 
 /* Initialize new supplemental page table */
