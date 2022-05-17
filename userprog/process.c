@@ -797,6 +797,7 @@ lazy_load_segment (struct page *page, void *aux) {
 	// 기존 page load 부분에서 kpage 등을 주어진 page를 이용해 수정
 	/* Load this page. */
 	struct aux_load_segment *aux_copy = aux;
+	file_seek(aux_copy->file, aux_copy->ofs);
 	void *kpage = page->frame->kva;
 	if (file_read(aux_copy->file, kpage, aux_copy->page_read_bytes) != (int)aux_copy->page_read_bytes)
 	{
@@ -843,7 +844,6 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 	ASSERT (pg_ofs (upage) == 0);
 	ASSERT (ofs % PGSIZE == 0);
 
-	file_seek (file, ofs);	
 	while (read_bytes > 0 || zero_bytes > 0) {
 		/* Do calculate how to fill this page.
 		 * We will read PAGE_READ_BYTES bytes from FILE
@@ -858,6 +858,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		aux->file = file;
 		aux->page_read_bytes = page_read_bytes;
 		aux->page_zero_bytes = page_zero_bytes;
+		aux->ofs = ofs;
 		// TODO: 여기서 aux 설정해서 ofs 같은거 넘겨줘야함
 		// 새로 자료구조 만들어야하나? 만들어야 할듯 aux자료구조 ㄱㄱ
 		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
@@ -865,6 +866,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 			return false;
 
 		/* Advance. */
+		ofs += page_read_bytes;
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;

@@ -7,7 +7,8 @@ struct aux_load_segment {
   struct file *file;
   uint32_t page_read_bytes;
   uint32_t page_zero_bytes;
-  bool writable
+  off_t ofs;
+  bool writable;
 };
 
 tid_t process_create_initd(const char *file_name);
