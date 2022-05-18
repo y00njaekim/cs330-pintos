@@ -421,7 +421,8 @@ page_lookup (const void *address) {
   struct hash_elem *e;
   struct thread *curr = thread_current();
 
-  p.va = pg_round_down(address);
+  p.va = pg_round_down(address); // Check: pg_round_down 추가 설정
+  // p.va = address;
 	// TODO: pages 수정하기 (struct thread안에 spt을 정의해야하는듯?)
   e = hash_find (&curr->spt.pages, &p.hash_elem);	
   return e != NULL ? hash_entry (e, struct page, hash_elem) : NULL;

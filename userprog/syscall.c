@@ -95,6 +95,9 @@ void
 syscall_handler (struct intr_frame *f) {
 	// TODO: Your implementation goes here.
 	switch(f->R.rax) {
+		#ifdef VM
+			thread_current()->user_rsp = f->rsp;
+		#endif
 		case SYS_HALT:			/* Halt the operating system. */
 			halt();
 			break;

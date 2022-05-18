@@ -164,7 +164,9 @@ vm_dealloc_frame (struct frame *frame) {
 /* Growing the stack. */
 static void
 vm_stack_growth (void *addr UNUSED) {
-} 
+	void *va = pg_round_down(addr);
+	thread_current()->stack_ceiling = va;
+}
 
 /* Handle the fault on write_protected page */
 static bool
@@ -175,11 +177,39 @@ vm_handle_wp (struct page *page UNUSED) {
 bool
 vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
-	struct supplemental_page_table *spt UNUSED = &thread_current ()->spt;
+	struct thread *curr = thread_current();
+	struct supplemental_page_table *spt UNUSED = &curr->spt;
 	struct page *page = NULL;
-	if(is_kernel_vaddr(addr)) return false;
-	page = spt_find_page(&thread_current()->spt, pg_round_down(addr));
-	if(page == NULL) return false;
+
+	if(is_kernel_vaddr(addr) || addr > USER_STACK || !not_present) return false; // not present: write on read-only page
+
+	/* Yoonjae's Check: 등호 조건 보기 */
+	page = spt_find_page(&thread_current()->spt, addr);
+	if(page == NULL) {
+		uintptr_t rsp = user ? f->rsp : curr->user_rsp;
+		if((uintptr_t)addr > rsp-64 && curr->stack_ceiling > (uintptr_t)addr && (uintptr_t)addr > (uintptr_t)(USER_STACK - (1<<20))) {
+			if(!vm_alloc_page(VM_ANON, pg_round_down(addr), true)) return false;
+			vm_stack_growth(addr);
+			page = spt_find_page(&thread_current()->spt, addr);
+			ASSERT(page != NULL);
+		}
+		else
+		{
+			return false; // Yoonjae's Question: 무조건 False 맞나?
+		}
+	}
+	/* else {
+		Yoonjae's comment
+		페이지가 있어
+		알고보니까 해당 주소에 해당하는 페이지를 예전에 만들어 놓았던 거야
+		근데 그 페이지의 va 가 rsp 와 차이가 너무 커 16 bytes 는 커녕 100 bytes 정도 차이나
+		이 때 bogus fault or real page fault?
+		페이지가 있을 때
+		stack_ceiling 보다 작은 값 (below) 에서 page 가 있을 수도 있고
+		stack_ceiling 보다 큰 값에서 page 가 있을 수도 있을 듯.
+	} */
+
+	return vm_do_claim_page (page);
 
 	/* TODO: Validate the fault */
 	// bogus 중에서도 lazy_load인지? 아니면 잘못된 곳에 접근해서 발생한 pf인지?
@@ -192,7 +222,6 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	// validate 해주기
 	/* TODO: 이 함수 수정해서 resolve the page struct corresponding to the faulted addr.
 	 * by coinsulting to the spt through spt_find_page */
-
 	// rsp 저장해야해.
 	// (1) user모드에서 접근하는거면 바로 rsp 부르면 돼.
 	// (2) kernel에서는 rsp를 따로 저장해둬야함. 
@@ -200,12 +229,12 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	// such as saving rsp into struct thread on the initial transition from user to kernel mode.
 	// -> 즉, current_thread 자료구조에 rsp 저장하는거 만드세요.
 	// 그 rsp 저장하는 변수에다가 user->kernel 전환 시에 저장해놓고 커널에서 접근할때 갖다 쓰세요.
-	
 	// stack이 성장해야 하는 경우
 	// find_page 했는데 이게 null인 경우 -> 진짜 segfault이거나 아니면 stack_growth 부르는 상황일텐데,
 	// 이걸 어떻게 판단? TODO: rsp와 비교해서 8byte 이내에? 있으면 성장이고 아니면 잘못 접근한 것으로 판단 하는 등 heuristic 합의하기
 	// 1 - USER_STACK 보다 주소가 낮으면서 (스택 영역 내에 있거나)
 	// 2 - 스택의 크기가 1MB 이하이면서 (즉, addr가 USER_STACK-2^20 위에 있거나)
+	// -> 1MB 보다 스택사이즈 크게 가져간 공간에 접근하려하면 General Protection fault (`exception.c:53`)
 	// 3 - heuristic을 만족하면 (addr가 rsp보다 작은데 (스택 바깥에 있는데). 너무 바깥 아닌경우)
 	// -> vm_stack_growth 부르세요!
 	
@@ -219,7 +248,6 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 
 
 	// anon / file_back 확인해서 그에 맞는 initializer 실행 -> uninit_initialize
-	return vm_do_claim_page (page);
 }
 
 /* Free the page.

@@ -904,9 +904,10 @@ setup_stack (struct intr_frame *if_) {
 		// 무슨말이냐면, 위에 있는 vm_alloc_page_with... 여기 두번째 항 upage에 stack_bottom 넣는다는 뜻
 		// 여기서는 install_page 대신에 vm_claim_page 하면 될듯?	
 		// vm_claim_page(va) 에서 va도 page claim 부르는 주소니까 스택바텀이 맞다.
-	if (success)
+	if (success) {
 		if_->rsp = USER_STACK;
-		// ERASE: thread_current()->stack_bottom = stack_bottom; 이건 왜 하는거지?
+		thread_current()->stack_ceiling = (uint8_t *)stack_bottom; // 이건 왜 하는거지?
+	}
 	else
 		// Yoonjae's TRY: frame free
 		vm_dealloc_frame(spt_find_page(&thread_current()->spt, stack_bottom)->frame);
