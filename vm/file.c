@@ -55,6 +55,35 @@ file_backed_destroy (struct page *page) {
 void *
 do_mmap (void *addr, size_t length, int writable,
 		struct file *file, off_t offset) {
+	// 2022.05.18
+	// load_segment와 같이, length 길이의 파일 요소를 PGSIZE 단위로 끊어서 입력한다. 
+	// 1. length가 불러온 파일의 길이보다 길면 error -> 어떻게 처리?
+	// if(length > file_length(file) || length < 0) return NULL;
+	size_t filelength = file_length(file);
+	if(length > filelength) length = filelength;
+
+	uint32_t read_bytes = length;
+	uint32_t zero_bytes;
+	// ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
+	// ASSERT (pg_ofs (addr) == 0);
+	// ASSERT (offset % PGSIZE == 0);
+
+	while(read_bytes > 0 || zero_bytes > 0) {
+		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+		size_t page_zero_bytes = PGSIZE - page_read_bytes;
+		void *aux = NULL;
+		aux_structure->ofs = offset;
+		aux_structure->page_read_bytes = page_read_bytes;
+
+		if(!vm_alloc_page_with_initializer(VM_FILE, addr, writable, lazy_load_segment(똑같은 역할), aux)) return NULL;
+
+		/* Advance. */
+		offset += page_read_bytes;
+		read_bytes -= page_read_bytes;
+		zero_bytes -= page_zero_bytes;
+		addr += PGSIZE;	
+	}
+	return true;
 }
 
 /* Do the munmap */
