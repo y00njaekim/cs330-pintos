@@ -111,9 +111,12 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 static struct frame *
 vm_get_victim (void) {
 	struct frame *victim = NULL;
-	 /* TODO: The policy for eviction is up to you. */
-	 /* NOTICE: vm_evict_frame에서 victim이 null인경우 에러처리 안했기 때문에 
-	  * 이 함수에서 victim get 못하면 NULL 반환해야 한다 */
+	/* TODO: The policy for eviction is up to you. */
+	/* NOTICE: vm_evict_frame에서 victim이 null인경우 에러처리 안했기 때문에 
+	 * 이 함수에서 victim get 못하면 NULL 반환해야 한다 */
+	// 2022.05.18 
+	// TODO: 가장 오랫동안 안쓰인 page 가져올건지? 단순히 FIFO로 가져올건지? policy 결정하기
+	// victim page는 frame의 page list 탐색하여 가져와야 하므로 frame에 list_entry 사용할 수 있도록 list_elem 정의하기
 
 	return victim;
 }
@@ -124,7 +127,7 @@ static struct frame *
 vm_evict_frame (void) {
 	struct frame *victim UNUSED = vm_get_victim ();
 	/* TODO: swap out the victim and return the evicted frame. */
-	swap_out(victim->page);
+	if(victim->page != NULL) swap_out(victim->page);
 	return victim;
 }
 
@@ -326,14 +329,60 @@ void page_copy (struct hash_elem *e, void *aux) {
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct supplemental_page_table *src UNUSED) {
-
-	// it is called in maybe child process
-	// so copy and paste to 
+	// hash_apply 이해하고,
+	// hash_apply의 action 항에 copy하는 action 정의해서 넣기
+	hash_apply(&src->pages, action_copy);
+	// 우리가 아는 hash_apply: hash의 각 항을 순회하면서 각 항에 action을 적용
+	// 2022.05.18
+	// QUESTION: action으로 dst 어떻게 넘겨주나? -> aux 넘겨주듯이 src의 자료구조나 action_copy의 자료구조로 넘겨야하나?
+	action_copy (page, aux) { 
+		aux->dst
+		new_page = vm_alloc_page(page->type, page->va, page->rw);
+		vm_claim_page(new_page);
+		// spt의 내용은 카피하지 않아도 되나?
+	}
+	// copy는 uninit page를 할당하고, 바로 claim 해주는 것으로 한다
+	// You will need to allocate uninit page and claim them immediately. (GitBook)
 }
+
+/* action_copy 
+ * 1. uninit copy
+ * vm_alloc_page_with_initializer
+ * 2. anon copy
+ * You will need to allocate uninit page and claim them immediately.
+ * vm_alloc_page_with_initializer 그리고 여기서 anon_initializer 
+ * vm_claim_page 하고, 끝.
+ * 3. file-backed copy 
+ * vm_alloc_page_with_initializer 하고,
+ * vm_claim_page.
+ */
 
 /* Free the resource hold by the supplemental page table */
 void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
+	hash_apply(spt->pages, action_destroy);
+	action_destroy(page, aux) { destroy(page) };
+	// hash_apply의 action에 destroy하는 action 정의해서 넣기 (hash_destroy 이용 가능할듯? -> destroy(page))
+	action
+	elem (=page), aux 들어올텐데
+	destroy(page)
+	// writeback all the modified contents to the storage.
+	dirty인 비트들 확인하고 
+	pml4가 dirty로 set 되어있으면 원래 storage에 복사
+	그 뒤, dirty 해제
 }
+
+/* 2022.05.18 
+ * hash_destroy(, action_destroy)
+ * action_destroy의 경우
+ * pml4_is_dirty
+ * file_write_at
+ * pml4_is_dirty(, false)
+ */
+// destroy 하면 안에 있는 page들 다 dealloc? 
+// vm_dealloc_page 쓸텐데 어떻게 쓸지 생각. 
+// spt_remove_page ? 이거는 bool 함수이고, true 확인할 필요 없나?
+// 디버그할때, spt_remove_page() != true -> 이상한거니까 체크할 수 있지 않나? 아니다.
+// 결론: vm_dealloc_page 쓰자.
