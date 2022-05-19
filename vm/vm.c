@@ -5,6 +5,7 @@
 #include "vm/inspect.h"
 #include "threads/mmu.h"
 #include "lib/kernel/hash.h"
+#include <string.h>
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -310,19 +311,24 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 void page_copy (struct hash_elem *e, void *aux) {
 	/* 포인터로 넘겨주는 것들은 memcpy 로 새롭게 카피본 만들어서 넘겨줘야 할 것 같음 */
 	struct page *p = hash_entry(e, struct page, hash_elem);
-	enum vm_type tp = VM_TYPE(p->operations->type);
+	enum vm_type type = VM_TYPE(p->operations->type);
 
-	if(tp == VM_UNINIT) {
+	if(type == VM_UNINIT) {
+		/* VM_ANON | VM_MARKER_0 이렇게 uninitialized page 로 만들어진 page 의 type 은 uninit.type 으로 참고
+		 * initialize 실행 후에는 anon file 등으로 고정될 듯 */
 		vm_alloc_page_with_initializer(p->uninit.type, p->va, p->rw, p->uninit.init, p->uninit.aux);
-	} else if(tp == VM_ANON) {
-		vm_alloc_page_with_initializer(p->uninit.type, p->va, p->rw, p->uninit.init, p->uninit.aux);
-	} else if(tp == VM_FILE) {
-
-	} else {
-
+	} else if(type == VM_ANON) {
+		vm_alloc_page(p->operations->type, p->va, p->rw);
+		struct page *np = spt_find_page(&thread_current()->spt, p->va);
+		vm_do_claim_page(np);
+		memcpy(np->frame->kva, p->frame->kva, PGSIZE);
 	}
-
-
+	else if (type == VM_FILE) {
+		vm_alloc_page(p->operations->type, p->va, p->rw);
+		struct page *np = spt_find_page(&thread_current()->spt, p->va);
+		vm_do_claim_page(np);
+		memcpy(np->frame->kva, p->frame->kva, PGSIZE);
+	}
 }; 
 
 /* Copy supplemental page table from src to dst */
@@ -331,18 +337,19 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct supplemental_page_table *src UNUSED) {
 	// hash_apply 이해하고,
 	// hash_apply의 action 항에 copy하는 action 정의해서 넣기
-	hash_apply(&src->pages, action_copy);
+	hash_apply(&src->pages, page_copy);
 	// 우리가 아는 hash_apply: hash의 각 항을 순회하면서 각 항에 action을 적용
 	// 2022.05.18
 	// QUESTION: action으로 dst 어떻게 넘겨주나? -> aux 넘겨주듯이 src의 자료구조나 action_copy의 자료구조로 넘겨야하나?
-	action_copy (page, aux) { 
-		aux->dst
-		new_page = vm_alloc_page(page->type, page->va, page->rw);
-		vm_claim_page(new_page);
+	// action_copy (page, aux) { 
+	// 	aux->dst
+	// 	new_page = vm_alloc_page(page->type, page->va, page->rw);
+	// 	vm_claim_page(new_page);
 		// spt의 내용은 카피하지 않아도 되나?
-	}
+	// }
 	// copy는 uninit page를 할당하고, 바로 claim 해주는 것으로 한다
 	// You will need to allocate uninit page and claim them immediately. (GitBook)
+	return true;
 }
 
 /* action_copy 
@@ -362,16 +369,16 @@ void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
-	hash_apply(spt->pages, action_destroy);
-	action_destroy(page, aux) { destroy(page) };
+	// hash_apply(spt->pages, action_destroy);
+	// action_destroy(page, aux) { destroy(page) };
 	// hash_apply의 action에 destroy하는 action 정의해서 넣기 (hash_destroy 이용 가능할듯? -> destroy(page))
-	action
-	elem (=page), aux 들어올텐데
-	destroy(page)
+	// action
+	// elem (=page), aux 들어올텐데
+	// destroy(page)
 	// writeback all the modified contents to the storage.
-	dirty인 비트들 확인하고 
-	pml4가 dirty로 set 되어있으면 원래 storage에 복사
-	그 뒤, dirty 해제
+	// dirty인 비트들 확인하고 
+	// pml4가 dirty로 set 되어있으면 원래 storage에 복사
+	// 그 뒤, dirty 해제
 }
 
 /* 2022.05.18 
