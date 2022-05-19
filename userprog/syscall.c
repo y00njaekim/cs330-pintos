@@ -482,14 +482,20 @@ mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
 	// if(check_if_page_aligned != 0) return NULL;
 	// 2022.05.18 이거 이렇게 할 필요 없고 page_aligned 확인하려면 pg_round_down해서 오프셋 0인거 확인하면 될듯? *위 주석 지우지 마시오
 	// if(pg_round_down(addr) != addr) return NULL;
-	if(pg_ofs(addr) != 0) return NULL;
+	if(pg_ofs(addr) == 0) return NULL;
+	// It must fail if the range of pages mapped overlaps any existing set of mapped pages, including the stack or pages mapped at executable load time
+	for (int i = addr; i < addr + length; i+=PGSIZE) {
+		if(spt_find_page(&thread_current()->spt, i))
+			return NULL;
+	};
 	// 4. addr가 0이면
 	// CHECK: Gitbook에 addr가 0인 경우와 NULL인 경우가 혼재. NULL이 0이니까 상관없나?
 	if(addr == 0) return NULL;
 	// 5. length가 0이면
-	if(length == 0) return NULL;
+	if(length <= 0) return NULL;
 	// 6. 잘못된 offset
-	if (offset < 0 || offset > PGSIZE) return NULL;
+	if (offset < 0 || offset > file_length(matched_file)) return NULL;
+	// if (offset < 0 || offset > PGSIZE) return NULL;
 	// 7. fd값이 STDIN이거나 STDOUT이면 -> 이 경우는 fd_match_file에서 검사
 	// if(fd == 0 || fd == 1) return NULL;
 

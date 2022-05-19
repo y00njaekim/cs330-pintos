@@ -327,8 +327,8 @@ bool
 supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct supplemental_page_table *src UNUSED) {
 
-	it is called in maybe child process
-	so copy and paste to 
+	// it is called in maybe child process
+	// so copy and paste to 
 }
 
 /* Free the resource hold by the supplemental page table */
