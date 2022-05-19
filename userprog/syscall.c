@@ -470,18 +470,19 @@ mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
 	// 2022.05.18 
 	// CHECK: 아래 NULL cases에서, matched_file 매치하기 전에 확인해야하는 조건 있는지 확인.
 	struct file *matched_file = fd_match_file(fd);
+	// 2. fd가 가리키는 파일이 없으면 
+	if(matched_file == NULL) return NULL;
 
 	/* NULL cases */
 	// 1. fd가 가리키는 파일의 길이가 0이면
 	if(file_length(matched_file) == 0) return NULL;
-	// 2. fd가 가리키는 파일이 없으면 
-	if(matched_file == NULL) return NULL;
 	// 3. addr가 not page-aligned면
 	// unsigned long int check_if_page_aligned = addr;
 	// check_if_page_aligned = (check_if_page_aligned << 52) >> 52;
 	// if(check_if_page_aligned != 0) return NULL;
 	// 2022.05.18 이거 이렇게 할 필요 없고 page_aligned 확인하려면 pg_round_down해서 오프셋 0인거 확인하면 될듯? *위 주석 지우지 마시오
-	if(pg_round_down(addr) != addr) return NULL;
+	// if(pg_round_down(addr) != addr) return NULL;
+	if(pg_ofs(addr) != 0) return NULL;
 	// 4. addr가 0이면
 	// CHECK: Gitbook에 addr가 0인 경우와 NULL인 경우가 혼재. NULL이 0이니까 상관없나?
 	if(addr == 0) return NULL;
