@@ -309,7 +309,7 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 
 // Customized hash_action_func
 void page_copy (struct hash_elem *e, void *aux) {
-	/* 포인터로 넘겨주는 것들은 memcpy 로 새롭게 카피본 만들어서 넘겨줘야 할 것 같음 */
+	/* Yoonjae's TODO: 포인터로 넘겨주는 것들은 memcpy 로 새롭게 카피본 만들어서 넘겨줘야 할 것 같음 */
 	struct page *p = hash_entry(e, struct page, hash_elem);
 	enum vm_type type = VM_TYPE(p->operations->type);
 
@@ -364,6 +364,11 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
  * vm_claim_page.
  */
 
+void page_kill (struct hash_elem *e, void *aux) {
+	struct page *p = hash_entry(e, struct page, hash_elem);
+	destroy(p);
+}
+
 /* Free the resource hold by the supplemental page table */
 void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
@@ -379,6 +384,7 @@ supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	// dirty인 비트들 확인하고 
 	// pml4가 dirty로 set 되어있으면 원래 storage에 복사
 	// 그 뒤, dirty 해제
+	hash_destroy(&spt->pages, page_kill);
 }
 
 /* 2022.05.18 
