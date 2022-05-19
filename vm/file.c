@@ -44,6 +44,11 @@ file_backed_swap_out (struct page *page) {
 static void
 file_backed_destroy (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
+	/* Memory Mapped Files
+	 * close하고, dirty 경우 write back the changes into the file
+	 * page struct를 free할 필요 없다 - caller가 할 일 */
+	/* PSEUDO */
+	close(file_page->file);	// ?: file_page 구조체 내의 file 가리키는 인자
 }
 
 /* Do the mmap */

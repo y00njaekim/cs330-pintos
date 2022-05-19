@@ -15,6 +15,8 @@
 #include "lib/user/syscall.h"
 #include "threads/init.h"
 #include "devices/input.h"
+#include "vm/vm.h"
+#include "vm/file.h"
 
 /* TODO : `putbuf() 는 lib/kernel/stdio.h 에 존재
 	        <stdio.h> 에서 #include_next 로 lib/kernel/stdio.h 수행
@@ -142,6 +144,12 @@ syscall_handler (struct intr_frame *f) {
 		case SYS_CLOSE:			/* Close a file. */
 			close(f->R.rdi);
 			break;
+		case SYS_MMAP:			/* Map a file into memory. */
+			mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.rcx, f->R.r8);	// GitBook, Argument Passing, x86-64 calling convention 참고
+			break;
+		case SYS_MUNMAP:		/* Remove a memory mapping. */
+			munmap(f->R.rdi);
+			break;
 		default:
 			exit(-1);
 			break;
@@ -153,7 +161,9 @@ syscall_handler (struct intr_frame *f) {
 /* 2-2 user memory access */
 void 
 uaddr_validity_check(uint64_t *uaddr) {
-	if (((uaddr == NULL) || is_kernel_vaddr(uaddr)) || (pml4_get_page(thread_current()->pml4, uaddr) == NULL)) exit(-1);
+	// project3에서 pml4_get_page의 경우 매칭이 안되면 PF, but bogus fault 인 경우도 있으므로 이 경우 오류로 생각하지 않는다.
+	if ((uaddr == NULL) || is_kernel_vaddr(uaddr)) exit(-1); // || (pml4_get_page(thread_current()->pml4, uaddr) == NULL)) exit(-1);
+	// TODO: 추가 사항 있는지 확인해보기
 }
 
 /* halt
@@ -442,4 +452,55 @@ close (int fd) {
 	curr->fd_table[fd] = NULL;
 	curr->fdx =  (curr->fdx > fd) ? fd : curr->fdx;
 	file_close(matched_file);
+}
+
+/* mmap
+ * do_mmap 실행한다
+ * fd 통해서 file 찾아준다
+ * NULL 반환 체크
+ */
+
+void *
+mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
+
+	// QUESTION: uaddr_validity_check 바로 써도 되나?
+	// 함수 내의 pml4 항 필요한지 체크해보기
+	// 아니면 do_mmap에서 체크해야하나? -> 여기가 맞는듯
+	// uaddr_validity_check(addr);
+	// 2022.05.18 
+	// CHECK: 아래 NULL cases에서, matched_file 매치하기 전에 확인해야하는 조건 있는지 확인.
+	struct file *matched_file = fd_match_file(fd);
+
+	/* NULL cases */
+	// 1. fd가 가리키는 파일의 길이가 0이면
+	if(file_length(matched_file) == 0) return NULL;
+	// 2. fd가 가리키는 파일이 없으면 
+	if(matched_file == NULL) return NULL;
+	// 3. addr가 not page-aligned면
+	// unsigned long int check_if_page_aligned = addr;
+	// check_if_page_aligned = (check_if_page_aligned << 52) >> 52;
+	// if(check_if_page_aligned != 0) return NULL;
+	// 2022.05.18 이거 이렇게 할 필요 없고 page_aligned 확인하려면 pg_round_down해서 오프셋 0인거 확인하면 될듯? *위 주석 지우지 마시오
+	if(pg_round_down(addr) != addr) return NULL;
+	// 4. addr가 0이면
+	// CHECK: Gitbook에 addr가 0인 경우와 NULL인 경우가 혼재. NULL이 0이니까 상관없나?
+	if(addr == 0) return NULL;
+	// 5. length가 0이면
+	if(length == 0) return NULL;
+	// 6. 잘못된 offset
+	if (offset < 0 || offset > PGSIZE) return NULL;
+	// 7. fd값이 STDIN이거나 STDOUT이면 -> 이 경우는 fd_match_file에서 검사
+	// if(fd == 0 || fd == 1) return NULL;
+
+	return do_mmap(addr, length, writable, matched_file, offset);
+}
+
+/* munmap
+ * do_munmap
+ */
+
+void
+munmap (void *addr) {
+	uaddr_validity_check(addr);		// 2022.05.18 uaddr_validity_check 확인하기 -> 수정해두었음
+	do_munmap(addr);
 }

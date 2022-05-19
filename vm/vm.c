@@ -303,10 +303,32 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 	hash_init (&spt->pages, page_hash, page_less, NULL);	// TODO: page_hash, page_less 정의하기 (confluence 에서 복사)
 }
 
+// Customized hash_action_func
+void page_copy (struct hash_elem *e, void *aux) {
+	/* 포인터로 넘겨주는 것들은 memcpy 로 새롭게 카피본 만들어서 넘겨줘야 할 것 같음 */
+	struct page *p = hash_entry(e, struct page, hash_elem);
+	enum vm_type tp = VM_TYPE(p->operations->type);
+
+	if(tp == VM_UNINIT) {
+		vm_alloc_page_with_initializer(p->uninit.type, p->va, p->rw, p->uninit.init, p->uninit.aux);
+	} else if(tp == VM_ANON) {
+		vm_alloc_page_with_initializer(p->uninit.type, p->va, p->rw, p->uninit.init, p->uninit.aux);
+	} else if(tp == VM_FILE) {
+
+	} else {
+
+	}
+
+
+}; 
+
 /* Copy supplemental page table from src to dst */
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct supplemental_page_table *src UNUSED) {
+
+	it is called in maybe child process
+	so copy and paste to 
 }
 
 /* Free the resource hold by the supplemental page table */
