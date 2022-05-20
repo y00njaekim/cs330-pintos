@@ -29,7 +29,7 @@ void syscall_handler (struct intr_frame *);
 	 의사결정 -> syscall_init */
 static struct semaphore file_sema;
 
-void uaddr_validity_check(uint64_t *uaddr);
+void uaddr_validity_check(uint64_t uaddr);
 struct file *fd_match_file(int fd);
 
 /* System call.
@@ -160,7 +160,7 @@ syscall_handler (struct intr_frame *f) {
 
 /* 2-2 user memory access */
 void 
-uaddr_validity_check(uint64_t *uaddr) {
+uaddr_validity_check(uint64_t uaddr) {
 	// project3에서 pml4_get_page의 경우 매칭이 안되면 PF, but bogus fault 인 경우도 있으므로 이 경우 오류로 생각하지 않는다.
 	if ((uaddr == NULL) || is_kernel_vaddr(uaddr)) exit(-1); // || (pml4_get_page(thread_current()->pml4, uaddr) == NULL)) exit(-1);
 	// TODO: 추가 사항 있는지 확인해보기
@@ -482,7 +482,7 @@ mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
 	// if(check_if_page_aligned != 0) return NULL;
 	// 2022.05.18 이거 이렇게 할 필요 없고 page_aligned 확인하려면 pg_round_down해서 오프셋 0인거 확인하면 될듯? *위 주석 지우지 마시오
 	// if(pg_round_down(addr) != addr) return NULL;
-	if(pg_ofs(addr) == 0) return NULL;
+	if(pg_ofs(addr) != 0) return NULL;
 	// It must fail if the range of pages mapped overlaps any existing set of mapped pages, including the stack or pages mapped at executable load time
 	for (int i = addr; i < addr + length; i+=PGSIZE) {
 		if(spt_find_page(&thread_current()->spt, i))

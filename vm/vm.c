@@ -5,7 +5,10 @@
 #include "vm/inspect.h"
 #include "threads/mmu.h"
 #include "lib/kernel/hash.h"
+#include "userprog/syscall.h"
+#include "lib/user/syscall.h"
 #include <string.h>
+#include "userprog/process.h"
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -68,7 +71,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		// CHECK: Using VM_TYPE macro defined in vm.h can be handy.
 		bool (*initializer)(struct page *, enum vm_type, void *);	// 마지막 void 포인터는 address (ex)kva)
 		if(VM_TYPE(type) == VM_ANON) initializer = anon_initializer;	// 얘처럼 하면 왜 안됨?
-		else if(VM_TYPE(type) == VM_ANON) initializer = file_backed_initializer;
+		else if(VM_TYPE(type) == VM_FILE) initializer = file_backed_initializer;
 		
 		// else if file backed = fildfds
 		uninit_new(npage, upage, init, type, aux, initializer);	// QUESTION: initializer 무엇?
@@ -195,7 +198,7 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	if(page == NULL) {
 		uintptr_t rsp = user ? f->rsp : curr->user_rsp;
 		if((uintptr_t)addr > rsp-64 && curr->stack_ceiling > (uintptr_t)addr && (uintptr_t)addr > (uintptr_t)(USER_STACK - (1<<20))) {
-			if(!vm_alloc_page(VM_ANON, pg_round_down(addr), true)) return false;
+			if(!vm_alloc_page(VM_ANON | VM_MARKER_0, pg_round_down(addr), true)) return false;
 			vm_stack_growth(addr);
 			page = spt_find_page(&thread_current()->spt, addr);
 			ASSERT(page != NULL);
@@ -319,16 +322,31 @@ void page_copy (struct hash_elem *e, void *aux) {
 	if(type == VM_UNINIT) {
 		/* VM_ANON | VM_MARKER_0 이렇게 uninitialized page 로 만들어진 page 의 type 은 uninit.type 으로 참고
 		 * initialize 실행 후에는 anon file 등으로 고정될 듯 */
-		vm_alloc_page_with_initializer(p->uninit.type, p->va, p->rw, p->uninit.init, p->uninit.aux);
+		struct aux_load_segment *aux_copy = malloc(sizeof(struct aux_load_segment));
+		if(aux_copy == NULL) exit(-1);
+		memcpy(aux_copy, p->uninit.aux, sizeof(struct aux_load_segment));
+		
+		if(!vm_alloc_page_with_initializer(p->uninit.type, p->va, p->rw, p->uninit.init, aux)) exit(-1);
 	} else if(type == VM_ANON) {
-		vm_alloc_page(p->operations->type, p->va, p->rw);
+		/* Yoonjae's Question:. vm_alloc_page VS vm_alloc_page(lazy_load) 둘 중 뭐가 맞을까? */
+		if(!vm_alloc_page(p->operations->type, p->va, p->rw)) exit(-1);
 		struct page *np = spt_find_page(&thread_current()->spt, p->va);
 		vm_do_claim_page(np);
 		memcpy(np->frame->kva, p->frame->kva, PGSIZE);
 	}
 	else if (type == VM_FILE) {
-		vm_alloc_page(p->operations->type, p->va, p->rw);
+		struct aux_load_segment *aux_copy = malloc(sizeof(struct aux_load_segment));
+		if(aux_copy == NULL) exit(-1);
+		memcpy(aux_copy, p->file.aux, sizeof(struct aux_load_segment));
+
+		if(!vm_alloc_page(p->operations->type, p->va, p->rw)) {
+			free(aux_copy);
+			exit(-1);
+		}
 		struct page *np = spt_find_page(&thread_current()->spt, p->va);
+		np->file.file = file_reopen(aux_copy->file);
+		np->file.aux = aux_copy;
+
 		vm_do_claim_page(np);
 		memcpy(np->frame->kva, p->frame->kva, PGSIZE);
 	}
@@ -369,7 +387,9 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 
 void page_kill (struct hash_elem *e, void *aux) {
 	struct page *p = hash_entry(e, struct page, hash_elem);
-	destroy(p);
+	enum vm_type type = VM_TYPE(p->operations->type);
+	// Yoonjae's TODO: VM_FILE 만 munmap / else destroy
+	spt_remove_page(&thread_current()->spt, p);
 }
 
 /* Free the resource hold by the supplemental page table */

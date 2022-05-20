@@ -5,6 +5,7 @@
 #include "lib/kernel/bitmap.h"
 #include "include/threads/vaddr.h"
 #include "include/threads/mmu.h"
+#include <string.h>
 
 /* DO NOT MODIFY BELOW LINE */
 static struct disk *swap_disk;
@@ -41,6 +42,7 @@ vm_anon_init (void) {
 bool
 anon_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* Set up the handler */
+	memset(&page->uninit, 0, sizeof(struct uninit_page));
 	page->operations = &anon_ops;	// anon swap in/out/destroy/type설정
 	// QUSETION: struct page의 모든 원소 initialize 해주어야 하나? uninit_new 처럼?
 	// page->frmae->va = kva;	
@@ -176,4 +178,11 @@ anon_swap_out (struct page *page) {
 static void
 anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
+	ASSERT(VM_TYPE(page->operations->type) == VM_ANON);
+	// hash_delete(&thread_current()->spt.pages, &page->hash_elem);
+	/* However, modifying hash
+   * table H while hash_clear() is running, using any of the
+   * functions hash_clear(), hash_destroy(), hash_insert(),
+   * hash_replace(), or hash_delete(), yields undefined behavior,
+   * whether done in DESTRUCTOR or elsewhere. */
 }

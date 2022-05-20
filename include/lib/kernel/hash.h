@@ -98,8 +98,8 @@ uint64_t hash_string (const char *);
 uint64_t hash_int (int);
 
 /* Customized Page functions (Reference: GitBook Hash Table in Appendix) */
-unsigned page_hash (struct hash_elem *, void *aux);
-bool page_less (struct hash_elem *, struct hash_elem *, void *aux);
+hash_hash_func* page_hash (struct hash_elem *, void *aux);
+hash_less_func* page_less (struct hash_elem *, struct hash_elem *, void *aux);
 struct page *page_lookup(const void *address);
 
 #endif /* lib/kernel/hash.h */
