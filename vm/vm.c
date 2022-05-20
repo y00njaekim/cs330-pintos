@@ -118,7 +118,10 @@ vm_get_victim (void) {
 	// 2022.05.18 
 	// TODO: 가장 오랫동안 안쓰인 page 가져올건지? 단순히 FIFO로 가져올건지? policy 결정하기
 	// victim page는 frame의 page list 탐색하여 가져와야 하므로 frame에 list_entry 사용할 수 있도록 list_elem 정의하기
-
+	// 2022.05.19
+	// Policy: 가장 오래된 것? 또는 최근에 쓰이지 않은 것을 victim으로. 
+	// pml4_is_accessed 이용하여 최근에 쓰이지 않은 것 evict하기.
+	// QUESTION: 무엇에 대해 루프 돌면서 pml4_is_accessed 불러야 하는가?
 	return victim;
 }
 

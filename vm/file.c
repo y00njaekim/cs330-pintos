@@ -91,7 +91,7 @@ do_mmap (void *addr, size_t length, int writable,
 
 		struct aux_load_segment *aux = malloc(sizeof(struct aux_load_segment));
 		if(aux == NULL) return NULL;
-		aux->file = file;
+		aux->file = file;							// QUESTION: 바뀐 offset 반영 위해 file_reopen(file) ?
 		aux->page_read_bytes = page_read_bytes;
 		aux->page_zero_bytes = page_zero_bytes;
 		aux->ofs = offset;
