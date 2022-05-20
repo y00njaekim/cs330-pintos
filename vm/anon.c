@@ -47,6 +47,7 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 	// page->rw = true;
 	struct anon_page *anon_page = &page->anon;
 	anon_page->swap_loc = NULL;
+	return true;
 }
 
 /* Swap in the page by read contents from the swap disk. */
@@ -74,7 +75,7 @@ anon_swap_in (struct page *page, void *kva) {
 		buffer += DISK_SECTOR_SIZE;
 		iteration--;
 	}
-
+	return true;
 }
 /* 이홍기의 생각 
  * swap_in을 할때, disk를 비워줘야 하지 않을까?
@@ -161,7 +162,7 @@ anon_swap_out (struct page *page) {
 	pml4_clear_page(curr->pml4, page);
 	// (3) 데이터의 위치를 page struct에 저장
 	anon_page->swap_loc = swapped_location;
-
+	return true;
 }
 
 /* palloc_free_page에 대한 고찰

@@ -8,6 +8,7 @@ enum vm_type;
 
 struct file_page {
 	struct file *file;	// file_backed_destroy에서 &page->file 에 대응하는 file 자료구조
+	void *swap_loc;		// swapped location
 };
 
 void vm_file_init (void);
