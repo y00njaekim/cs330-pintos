@@ -49,4 +49,11 @@ anon_swap_out (struct page *page) {
 static void
 anon_destroy (struct page *page) {
 	struct anon_page *anon_page = &page->anon;
+	ASSERT(VM_TYPE(page->operations->type) == VM_ANON);
+	// hash_delete(&thread_current()->spt.pages, &page->hash_elem);
+	/* However, modifying hash
+   * table H while hash_clear() is running, using any of the
+   * functions hash_clear(), hash_destroy(), hash_insert(),
+   * hash_replace(), or hash_delete(), yields undefined behavior,
+   * whether done in DESTRUCTOR or elsewhere. */
 }

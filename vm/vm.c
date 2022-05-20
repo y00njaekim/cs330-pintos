@@ -5,6 +5,8 @@
 #include "vm/inspect.h"
 #include "threads/mmu.h"
 #include "lib/kernel/hash.h"
+#include "userprog/syscall.h"
+#include "lib/user/syscall.h"
 #include <string.h>
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
@@ -366,7 +368,9 @@ supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 
 void page_kill (struct hash_elem *e, void *aux) {
 	struct page *p = hash_entry(e, struct page, hash_elem);
-	destroy(p);
+	enum vm_type type = VM_TYPE(p->operations->type);
+	// Yoonjae's TODO: VM_FILE 만 munmap / else destroy
+	spt_remove_page(&thread_current()->spt, p);
 }
 
 /* Free the resource hold by the supplemental page table */

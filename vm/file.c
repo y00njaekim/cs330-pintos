@@ -1,8 +1,13 @@
 /* file.c: Implementation of memory backed file object (mmaped object). */
 
+#include <debug.h>
 #include "vm/vm.h"
 #include "threads/vaddr.h"
 #include "userprog/process.h"
+#include "threads/mmu.h"
+#include "userprog/syscall.h"
+#include "lib/user/syscall.h"
+#include "filesys/file.h"
 
 static bool file_backed_swap_in (struct page *page, void *kva);
 static bool file_backed_swap_out (struct page *page);
@@ -45,17 +50,34 @@ file_backed_swap_out (struct page *page) {
 /* Destory the file backed page. PAGE will be freed by the caller. */
 static void
 file_backed_destroy (struct page *page) {
-	struct file_page *file_page UNUSED = &page->file;
+	struct file_page *file_page UNUSED = &page->file; // type casting
+	struct aux_do_mmap *aux_copy = file_page->aux;
 	/* Memory Mapped Files
 	 * close하고, dirty 경우 write back the changes into the file
 	 * page struct를 free할 필요 없다 - caller가 할 일 */
 	/* PSEUDO */
-	close(file_page->file);	// ?: file_page 구조체 내의 file 가리키는 인자
+	if(pml4_is_dirty(thread_current()->pml4, page->va)) {
+		// Yoonjae's Question: write 가 실패하는 경우는 없나?
+		file_write_at(file_page->file, page->frame->kva, aux_copy->page_read_bytes, aux_copy->ofs);
+		pml4_set_dirty(thread_current()->pml4, page->va, false);
+	}
+	// hash_delete(&thread_current()->spt.pages, &page->hash_elem);
+	/* However, modifying hash
+   * table H while hash_clear() is running, using any of the
+   * functions hash_clear(), hash_destroy(), hash_insert(),
+   * hash_replace(), or hash_delete(), yields undefined behavior,
+   * whether done in DESTRUCTOR or elsewhere. */
+	free(file_page->aux);
+	file_close(file_page->file);	// ?: file_page 구조체 내의 file 가리키는 인자
+	// DONE: fd_table 닫아 줄 필요 있을까? 없을 듯 (with syscall close)
 }
 
 static bool
 lazy_do_mmap (struct page *page, void *aux) {
-	struct aux_load_segment *aux_copy = aux;
+	struct aux_do_mmap *aux_copy = aux; // type casting
+	ASSERT(VM_TYPE(page->operations->type) == VM_FILE);
+	page->file.aux = aux_copy;
+	page->file.file = file_reopen(aux_copy->file);
 	file_seek(aux_copy->file, aux_copy->ofs);
 	void *kpage = page->frame->kva;
 	if (file_read(aux_copy->file, kpage, aux_copy->page_read_bytes) != (int)aux_copy->page_read_bytes) {
@@ -89,8 +111,9 @@ do_mmap (void *addr, size_t length, int writable,
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-		struct aux_load_segment *aux = malloc(sizeof(struct aux_load_segment));
+		struct aux_do_mmap *aux = malloc(sizeof(struct aux_do_mmap));
 		if(aux == NULL) return NULL;
+		// Yoonjae's Question: reopen 필요한 거 맞아?
 		aux->file = file;
 		aux->page_read_bytes = page_read_bytes;
 		aux->page_zero_bytes = page_zero_bytes;
@@ -111,4 +134,38 @@ do_mmap (void *addr, size_t length, int writable,
 /* Do the munmap */
 void
 do_munmap (void *addr) {
+	struct thread *curr = thread_current();
+
+	// while(addr에 매칭된 페이지의 aux의 page_read_bytes == PGSIZE) {
+	// 		spt_remove_page(spt, page);
+	// }
+	// if(addr에 매칭된 페이지의 aux의 page_read_bytes != 0) {
+	// 		spt_remove_page(spt, page);
+	// }
+	uintptr_t addr_copy = (uintptr_t)addr;
+	struct page *page = spt_find_page(&curr->spt, (void *)addr_copy);
+	if (page == NULL) return exit(-1);
+
+	while(page != NULL && page->file.aux->page_read_bytes == PGSIZE) {
+			spt_remove_page(&curr->spt, page);
+			addr_copy += (uintptr_t)PGSIZE;
+			page = spt_find_page(&curr->spt, addr_copy);
+	}
+	if(page->file.aux->page_read_bytes != 0) {
+			spt_remove_page(&curr->spt, page);
+	}
+
+	// TODO: munmap 에서 page at addr 의 type 이 VM_FILE 인지 체크
+	// addr 이 file 의 중간에 있을 때 위 아래쪽의 file 은 어캐 detect?
+	// struct page *page = NULL;
+	// struct thread *curr = thread_current();
+	// struct supplemental_page_table *spt = &curr->spt;
+
+	// // 일단 unmap할 페이지를 찾는다
+	// page = spt_find_page(spt, addr);
+	// // 만약 used bit 있으면
+	// if(pml4_is_dirty(curr->pml4, addr)) {
+	// 		file_write_at();
+	// }
+	// spt_remove_page(spt, page);
 }

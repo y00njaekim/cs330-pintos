@@ -808,6 +808,7 @@ lazy_load_segment (struct page *page, void *aux) {
 		// palloc 해주는게 맞는듯 - yoonjae
 		return false;
 	}
+	// Yoonjae's TODO: aux free 해줘도 되나?
 	memset (kpage + aux_copy->page_read_bytes, 0, aux_copy->page_zero_bytes);	// kpage 대신 page의 frame에 있는 kva
 
 	/* Add the page to the process's address space. */
