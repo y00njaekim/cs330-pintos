@@ -291,6 +291,9 @@ process_exec (void *f_name) {
 
 	/* We first kill the current context */
 	process_cleanup ();
+	#ifdef VM
+		supplemental_page_table_init(&thread_current()->spt);
+	#endif
 
 	/* And then load the binary */
 	// lock_acquire(&load_lock);
@@ -391,6 +394,9 @@ process_exit (void) {
 	/* QUESTION: process termination message는 exit() 시스템 콜에서 불리니 print 필요 없나? */
 	// printf ("%s: exit(%d)\n", ...);
 	process_cleanup ();
+	#ifdef VM
+	supplemental_page_table_init (&thread_current ()->spt);
+#endif
 }
 
 /* Free the current process's resources. */
