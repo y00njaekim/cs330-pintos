@@ -27,6 +27,7 @@
 
 static struct lock load_lock;
 static struct semaphore load_sema;
+void load_sema_init(void);
 
 void load_sema_init(void) {
 	sema_init(&load_sema, 1);
@@ -812,6 +813,7 @@ lazy_load_segment (struct page *page, void *aux) {
 		// vm_alloc_page_with_initializer 에서 할당을 하는데,
 		// 본 함수에서 할당하지는 않으니까 palloc 부분은 기존과 다르게 필요없다.
 		// palloc 해주는게 맞는듯 - yoonjae
+		free(aux_copy);
 		return false;
 	}
 	// Yoonjae's TODO: aux free 해줘도 되나?
@@ -823,7 +825,7 @@ lazy_load_segment (struct page *page, void *aux) {
 	// 	palloc_free_page (kpage);
 	// 	return false;
 	// }
-	
+	free(aux_copy);
 	return true;
 }
 
@@ -913,11 +915,15 @@ setup_stack (struct intr_frame *if_) {
 		// vm_claim_page(va) 에서 va도 page claim 부르는 주소니까 스택바텀이 맞다.
 	if (success) {
 		if_->rsp = USER_STACK;
-		thread_current()->stack_ceiling = (uint8_t *)stack_bottom; // 이건 왜 하는거지?
+		thread_current()->stack_ceiling = (uintptr_t)stack_bottom; // 이건 왜 하는거지?
 	}
-	else
+	else {
+
 		// Yoonjae's TRY: frame free
-		vm_dealloc_frame(spt_find_page(&thread_current()->spt, stack_bottom)->frame);
+		// vm_dealloc_frame(spt_find_page(&thread_current()->spt, stack_bottom)->frame);
+		struct page *p = spt_find_page(&thread_current()->spt, stack_bottom);
+		if (p != NULL) spt_remove_page(&thread_current()->spt, p);
+	}
 		
 		// palloc_free_page (kpage);	// 요건 마찬가지로 필요없음 아닌가 필요할수도 저 위에처럼 구현하면
 	return success;

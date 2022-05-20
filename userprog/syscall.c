@@ -29,7 +29,7 @@ void syscall_handler (struct intr_frame *);
 	 의사결정 -> syscall_init */
 static struct semaphore file_sema;
 
-void uaddr_validity_check(uint64_t *uaddr);
+void uaddr_validity_check(uint64_t uaddr);
 struct file *fd_match_file(int fd);
 
 /* System call.
@@ -160,7 +160,7 @@ syscall_handler (struct intr_frame *f) {
 
 /* 2-2 user memory access */
 void 
-uaddr_validity_check(uint64_t *uaddr) {
+uaddr_validity_check(uint64_t uaddr) {
 	// project3에서 pml4_get_page의 경우 매칭이 안되면 PF, but bogus fault 인 경우도 있으므로 이 경우 오류로 생각하지 않는다.
 	if ((uaddr == NULL) || is_kernel_vaddr(uaddr)) exit(-1); // || (pml4_get_page(thread_current()->pml4, uaddr) == NULL)) exit(-1);
 	// TODO: 추가 사항 있는지 확인해보기

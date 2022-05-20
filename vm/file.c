@@ -1,6 +1,7 @@
 /* file.c: Implementation of memory backed file object (mmaped object). */
 
 #include <debug.h>
+#include <string.h>
 #include "vm/vm.h"
 #include "threads/vaddr.h"
 #include "userprog/process.h"
@@ -30,6 +31,7 @@ vm_file_init (void) {
 bool
 file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* Set up the handler */
+	memset(&page->uninit, 0, sizeof(struct uninit_page));
 	page->operations = &file_ops;
 
 	struct file_page *file_page = &page->file;
@@ -51,7 +53,7 @@ file_backed_swap_out (struct page *page) {
 static void
 file_backed_destroy (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file; // type casting
-	struct aux_do_mmap *aux_copy = file_page->aux;
+	struct aux_load_segment *aux_copy = file_page->aux;
 	/* Memory Mapped Files
 	 * close하고, dirty 경우 write back the changes into the file
 	 * page struct를 free할 필요 없다 - caller가 할 일 */
@@ -74,7 +76,7 @@ file_backed_destroy (struct page *page) {
 
 static bool
 lazy_do_mmap (struct page *page, void *aux) {
-	struct aux_do_mmap *aux_copy = aux; // type casting
+	struct aux_load_segment *aux_copy = aux; // type casting
 	ASSERT(VM_TYPE(page->operations->type) == VM_FILE);
 	page->file.aux = aux_copy;
 	page->file.file = file_reopen(aux_copy->file);
@@ -111,7 +113,7 @@ do_mmap (void *addr, size_t length, int writable,
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-		struct aux_do_mmap *aux = malloc(sizeof(struct aux_do_mmap));
+		struct aux_load_segment *aux = malloc(sizeof(struct aux_load_segment));
 		if(aux == NULL) return NULL;
 		// Yoonjae's Question: reopen 필요한 거 맞아?
 		aux->file = file;
