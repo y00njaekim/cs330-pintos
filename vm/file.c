@@ -35,18 +35,25 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	page->operations = &file_ops;
 
 	struct file_page *file_page = &page->file;
+	file_page->swap_loc = NULL;
 }
 
 /* Swap in the page by read contents from the file. */
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
 	struct file_page *file_page UNUSED = &page->file;
+	file_read_at(file_page->file, kva, PGSIZE, file_page->swap_loc);
+	return true;
 }
 
 /* Swap out the page by writeback contents to the file. */
 static bool
 file_backed_swap_out (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file;
+	file_write_at(file_page->file, page->frame->kva, PGSIZE, 오프셋);
+	pml4_clear_page(&thread_current()->pml4, page);
+	file_page->swap_loc = 오프셋;
+	return true;
 }
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
@@ -115,8 +122,8 @@ do_mmap (void *addr, size_t length, int writable,
 
 		struct aux_load_segment *aux = malloc(sizeof(struct aux_load_segment));
 		if(aux == NULL) return NULL;
-		// Yoonjae's Question: reopen 필요한 거 맞아?
-		aux->file = file;
+  	// Yoonjae's Question: reopen 필요한 거 맞아?
+		aux->file = file;							// QUESTION: 바뀐 offset 반영 위해 file_reopen(file) ?
 		aux->page_read_bytes = page_read_bytes;
 		aux->page_zero_bytes = page_zero_bytes;
 		aux->ofs = offset;
