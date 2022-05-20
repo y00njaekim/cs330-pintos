@@ -3,6 +3,8 @@
 #include "vm/vm.h"
 #include "devices/disk.h"
 #include "lib/kernel/bitmap.h"
+#include "include/threads/vaddr.h"
+#include "include/threads/mmu.h"
 
 /* DO NOT MODIFY BELOW LINE */
 static struct disk *swap_disk;
@@ -49,8 +51,53 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 /* Swap in the page by read contents from the swap disk. */
 static bool
 anon_swap_in (struct page *page, void *kva) {
-	struct anon_page *anon_page = &page->anon;
+	struct anon_page *anon_page = &page->anon;	
+	/* 일단, swap-in은 swap-out이 해당 페이지에 in 명령 이전에 일어났었다 가정.
+	 * (1) swap-out된 위치를 기록하는 주소에 접근하여, swap-out된 기록이 없으면 false.
+	 * (2) swapped_location 가져오면, 그 위치부터 disk_read
+	 * (3) swap_table에 해당 disk부분 할당 해제된 것으로 표시
+	 */
+	size_t swapped_location = anon_page->swap_loc;
+	if(swapped_location == NULL) return false;	// (1) swap out된 적이 없습니다! 
+
+	disk_sector_t disk_offset;
+	void *buffer;
+	struct thread *curr = thread_current();
+	buffer = page->frame->kva;
+	disk_offset = swapped_location;
+	int iteration = PGSIZE/DISK_SECTOR_SIZE;
+	while(iteration) {
+		disk_read(swap_disk, disk_offset, buffer);								// (2)
+		bitmap_set_multiple(swap_table, disk_offset, DISK_SECTOR_SIZE, false);	// (3)
+		disk_offset += DISK_SECTOR_SIZE;
+		buffer += DISK_SECTOR_SIZE;
+		iteration--;
+	}
+
 }
+/* 이홍기의 생각 
+ * swap_in을 할때, disk를 비워줘야 하지 않을까?
+ * swap_in에서 disk_read를 하고 disk를 비워주지 않으면,
+ * swap_out을 할 때 disk 부분을 쓰지 못하게 되고, 그러면 swap_out 시에 다른 부분에 기록하게 되므로
+ * disk에 사본이 여러개 생긴다. 그러면, swap in&out을 100번 실행한다면, disk 내에 100개의 사본이 생기는데 
+ * 그러면 너무 공간을 낭비하게 되는 것 아닌가?
+ * (1) disk를 냅두는 시나리오
+ * 	disk를 냅두는 대신, 해당 page에 대해 swap_out이 다시 일어나게 되는 경우에는
+ *  새로 disk_write하지 않고, anon_page->swap_loc이 NULL이 아니라면 copy 건너뛰고 pml4_clear_page 만 해준다
+ *  PROS: swap_out과 in을 자주 반복하는 경우 비용이 싸진다.
+ *  CONS: swap_out과 in을 한번만 하더라도 disk에 영구적인 저장이 되므로, 디스크 공간 최적화가 이루어지지 않는다.
+ * 
+ * (2) disk를 매번 초기화 해주는 시나리오
+ *  swap_in 시에 disk_read 후 해당 disk 부분의 값을 초기화해준다.
+ *  PROS: swap_in / out을 여러번 반복하더라도 disk 공간을 최적화할 수 있다.
+ *  CONS: swap_in / out을 여러번 반복하더라도 매번 새로운 명령을 하는 것과 같다. 
+ * 
+ * 결론
+ * 생각해보니. disk의 값을 초기화하지 않더라도 swap_table에 false로만 바꿔두면,
+ * 해당 disk 영역을 덮어쓰기함으로써 초기화된 영역을 사용하는 것과 같은 효과를 낼 수 있다. 
+ * 즉, 그냥 swap_table에만 disk 내용이 할당 해제된것처럼 간주하고 쓰면 된다.
+ */
+
 
 /* find_free_slot_in_swap_disk
  * swap disk에서 빈 공간을 찾아 page의 데이터를 넣어준다.
@@ -78,6 +125,7 @@ anon_swap_out (struct page *page) {
 	size_t swapped_location;
 	disk_sector_t disk_offset;	// QUSETION: disk_offset은 bitmap의 위치와 같은가?
 	void *buffer;	// memory -> buffer -> disk 자료형 무엇?
+	struct thread *curr = thread_current();
 	/* PUSEDO */
 	// (1) free swap slot 찾고, 없으면 panic the kernel
 	swapped_location = find_free_slot_in_swap_disk();
@@ -93,23 +141,34 @@ anon_swap_out (struct page *page) {
 	 * [2] 버퍼에서 디스크로 disk_write 
 	 * [3] 메모리 free (free인지 0으로 초기화하는건지 확인할것)
 	 */
-	buffer = malloc(DISK_SECTOR_SIZE);
+	buffer = page->frame->kva;
 	disk_offset = swapped_location;	// swapped_location이 disk_offset과 같은가? 
-	int iteration = 2;	// PGSIZE = DISK_SECTOR_SIZE * 2
+	int iteration = PGSIZE/DISK_SECTOR_SIZE;	// PGSIZE = DISK_SECTOR_SIZE * 8
 	while(iteration) {
-		// [1]
-		메모리 -> 버퍼
-		// [2]
-		disk_write(swap_disk, disk_offset, buffer);
-		// [3] palloc_page_free는 아닌듯? 열심히 매핑해둔 페이지를 free하는것이 아니라 page를 초기화만 하는건가?
-		// sth
+		// [1],[2] 잘못생각했다.
+		// 버퍼의 주소를 메모리 주소로 주면, 알아서 그 주소로부터 DISK_SECTOR_SIZE만큼 복사
+		disk_write(swap_disk, disk_offset, buffer);	// 버퍼 주소부터 512비트를 copy한다.
 		disk_offset += DISK_SECTOR_SIZE;
+		buffer += DISK_SECTOR_SIZE;
 		iteration--;
 	}
+	// [3] page를 free
+	// palloc_free_page or pml4_clear_page?
+	// palloc을 해버리면 page 자체 공간이 할당 해제되는데, frame의 내용만 copy되고 초기화되는 것이므로 pml4_clear_page가 적합해보이지만,
+	// pml4_clear_page는 not_present로만 바꿔준다.
+	// not_present는 page_fault에서 쓰였던 인자이므로 PF 관련 이슈 생기면 여기부터 확인해보기!
+	pml4_clear_page(curr->pml4, page);
 	// (3) 데이터의 위치를 page struct에 저장
 	anon_page->swap_loc = swapped_location;
 
 }
+
+/* palloc_free_page에 대한 고찰
+ * palloc_free_page는 pool로부터 page(virtual, or physical)를 가져올 때 그 링크를 끊어주는 것이고,
+ * 실제 vm_dealloc_page를 살펴보면 free(frame)을 통해 공간을 할당 해제해주는 것을 알 수 있다.
+ * 따라서 위의 경우 page(virtual page)와 frame(physical page)의 관계를 끊어주는 pml4_clear_page를 써야 하고,
+ * palloc_free_page는 실제 page/frame을 해제(destroy)할때 쓰는 것이 맞다.
+ */
 
 /* Destroy the anonymous page. PAGE will be freed by the caller. */
 static void
