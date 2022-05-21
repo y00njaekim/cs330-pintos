@@ -396,7 +396,8 @@ void page_kill (struct hash_elem *e, void *aux) {
 	struct page *p = hash_entry(e, struct page, hash_elem);
 	enum vm_type type = VM_TYPE(p->operations->type);
 	// Yoonjae's TODO: VM_FILE 만 munmap / else destroy
-	spt_remove_page(&thread_current()->spt, p);
+	// spt_remove_page(&thread_current()->spt, p);
+	destroy(p);
 }
 
 /* Free the resource hold by the supplemental page table */

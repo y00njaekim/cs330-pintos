@@ -84,7 +84,7 @@ file_backed_destroy (struct page *page) {
    * hash_replace(), or hash_delete(), yields undefined behavior,
    * whether done in DESTRUCTOR or elsewhere. */
 	free(file_page->aux);
-	file_close(file_page->file);	// ?: file_page 구조체 내의 file 가리키는 인자
+	// file_close(file_page->file);	// ?: file_page 구조체 내의 file 가리키는 인자
 	// DONE: fd_table 닫아 줄 필요 있을까? 없을 듯 (with syscall close)
 }
 
@@ -92,14 +92,14 @@ static bool
 lazy_do_mmap (struct page *page, void *aux) {
 	struct aux_load_segment *aux_copy = aux; // type casting
 	ASSERT(VM_TYPE(page->operations->type) == VM_FILE);
-	page->file.aux = aux_copy;
-	page->file.file = file_reopen(aux_copy->file);
 	file_seek(aux_copy->file, aux_copy->ofs);
 	void *kpage = page->frame->kva;
 	if (file_read(aux_copy->file, kpage, aux_copy->page_read_bytes) != (int)aux_copy->page_read_bytes) {
 		return false;
 	}
 	memset (page->va + aux_copy->page_read_bytes, 0, aux_copy->page_zero_bytes);	// kpage 대신 page의 frame에 있는 kva
+	page->file.aux = aux_copy;
+	page->file.file = aux_copy->file;
 	return true;
 }
 
@@ -112,6 +112,8 @@ do_mmap (void *addr, size_t length, int writable,
 	// load_segment와 같이, length 길이의 파일 요소를 PGSIZE 단위로 끊어서 입력한다. 
 	// 1. length가 불러온 파일의 길이보다 길면 error -> 어떻게 처리?
 	// if(length > file_length(file) || length < 0) return NULL;
+	struct file *file_copy = file_reopen(file);
+	if(file_copy == NULL) return NULL;
 	size_t filelength = file_length(file);
 	if(length > filelength) length = filelength;
 
@@ -130,13 +132,16 @@ do_mmap (void *addr, size_t length, int writable,
 		struct aux_load_segment *aux = malloc(sizeof(struct aux_load_segment));
 		if(aux == NULL) return NULL;
   	// Yoonjae's Question: reopen 필요한 거 맞아?
-		aux->file = file_reopen(file);							// QUESTION: 바뀐 offset 반영 위해 file_reopen(file) ?
+		aux->file = file_copy; // QUESTION: 바뀐 offset 반영 위해 file_reopen(file) ?
 		aux->page_read_bytes = page_read_bytes;
 		aux->page_zero_bytes = page_zero_bytes;
 		aux->ofs = offset;
 
 		if(!vm_alloc_page_with_initializer(VM_FILE, addr,
-					writable, lazy_do_mmap, aux)) return NULL;
+					writable, lazy_do_mmap, aux)) {
+			file_close(file_copy);
+			return NULL;
+		}
 
 		/* Advance. */
 		offset += page_read_bytes;
@@ -162,14 +167,18 @@ do_munmap (void *addr) {
 	struct page *page = spt_find_page(&curr->spt, (void *)addr_copy);
 	if (page == NULL) return exit(-1);
 
-	while(page != NULL && page->file.aux->page_read_bytes == PGSIZE) {
-			spt_remove_page(&curr->spt, page);
-			addr_copy += (uintptr_t)PGSIZE;
-			page = spt_find_page(&curr->spt, addr_copy);
+	struct file *file_copy = page->file.file;
+	while (page != NULL && page->file.aux->page_read_bytes == PGSIZE){
+		// Yoonjae's Question: hash_delete 가 필요한 이유??
+		hash_delete(&curr->spt, &page->hash_elem);
+		spt_remove_page(&curr->spt, page);
+		addr_copy += (uintptr_t)PGSIZE;
+		page = spt_find_page(&curr->spt, addr_copy);
 	}
 	if(page->file.aux->page_read_bytes != 0) {
 			spt_remove_page(&curr->spt, page);
 	}
+	file_close(file_copy);
 
 	// TODO: munmap 에서 page at addr 의 type 이 VM_FILE 인지 체크
 	// addr 이 file 의 중간에 있을 때 위 아래쪽의 file 은 어캐 detect?

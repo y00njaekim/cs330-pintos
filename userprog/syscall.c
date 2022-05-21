@@ -145,7 +145,7 @@ syscall_handler (struct intr_frame *f) {
 			close(f->R.rdi);
 			break;
 		case SYS_MMAP:			/* Map a file into memory. */
-			mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.rcx, f->R.r8);	// GitBook, Argument Passing, x86-64 calling convention 참고
+			f->R.rax = mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);	// GitBook, Argument Passing, x86-64 calling convention 참고
 			break;
 		case SYS_MUNMAP:		/* Remove a memory mapping. */
 			munmap(f->R.rdi);
@@ -462,20 +462,23 @@ close (int fd) {
 
 void *
 mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
-
 	// QUESTION: uaddr_validity_check 바로 써도 되나?
 	// 함수 내의 pml4 항 필요한지 체크해보기
 	// 아니면 do_mmap에서 체크해야하나? -> 여기가 맞는듯
 	// uaddr_validity_check(addr);
 	// 2022.05.18 
 	// CHECK: 아래 NULL cases에서, matched_file 매치하기 전에 확인해야하는 조건 있는지 확인.
+
+	if(is_kernel_vaddr(addr)) return NULL;
 	struct file *matched_file = fd_match_file(fd);
 	// 2. fd가 가리키는 파일이 없으면 
 	if(matched_file == NULL) return NULL;
 
 	/* NULL cases */
 	// 1. fd가 가리키는 파일의 길이가 0이면
-	if(file_length(matched_file) == 0) return NULL;
+	size_t filelength = file_length(matched_file);
+	if (filelength == 0) return NULL;
+	length = filelength < length ? filelength : length;
 	// 3. addr가 not page-aligned면
 	// unsigned long int check_if_page_aligned = addr;
 	// check_if_page_aligned = (check_if_page_aligned << 52) >> 52;
@@ -494,7 +497,7 @@ mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
 	// 5. length가 0이면
 	if(length <= 0) return NULL;
 	// 6. 잘못된 offset
-	if (offset < 0 || offset > file_length(matched_file)) return NULL;
+	if (offset < 0 || offset > length) return NULL;
 	// if (offset < 0 || offset > PGSIZE) return NULL;
 	// 7. fd값이 STDIN이거나 STDOUT이면 -> 이 경우는 fd_match_file에서 검사
 	// if(fd == 0 || fd == 1) return NULL;
