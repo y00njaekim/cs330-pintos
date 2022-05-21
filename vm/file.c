@@ -118,7 +118,7 @@ do_mmap (void *addr, size_t length, int writable,
 	void *addr_copy = addr;
 
 	uint32_t read_bytes = length;
-	uint32_t zero_bytes = 0;
+	uint32_t zero_bytes = PGSIZE - read_bytes % PGSIZE;
 	// ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
 	// ASSERT (pg_ofs (addr) == 0);
 	// ASSERT (offset % PGSIZE == 0);
