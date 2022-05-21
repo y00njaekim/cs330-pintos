@@ -74,7 +74,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		else if(VM_TYPE(type) == VM_FILE) initializer = file_backed_initializer;
 		
 		// else if file backed = fildfds
-		uninit_new(npage, upage, init, type, aux, initializer);	// QUESTION: initializer 무엇?
+		uninit_new(npage, pg_round_down(upage), init, type, aux, initializer);	// QUESTION: initializer 무엇?
 
 		// CHECK: modify the field after calling the uninit_new
 		// QUESTION: writable 설정은 어디서?
@@ -197,16 +197,23 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	page = spt_find_page(&thread_current()->spt, addr);
 	if(page == NULL) {
 		uintptr_t rsp = user ? f->rsp : curr->user_rsp;
-		if((uintptr_t)addr > rsp-64 && curr->stack_ceiling > (uintptr_t)addr && (uintptr_t)addr > (uintptr_t)(USER_STACK - (1<<20))) {
-			if(!vm_alloc_page(VM_ANON | VM_MARKER_0, pg_round_down(addr), true)) return false;
+		if((uintptr_t)addr > rsp-64 && curr->stack_ceiling > (uintptr_t)addr && (uintptr_t)addr >= (uintptr_t)(USER_STACK - (1<<20))) {
+			if(!vm_alloc_page(VM_ANON | VM_MARKER_0, addr, true)) return false;
 			vm_stack_growth(addr);
 			page = spt_find_page(&thread_current()->spt, addr);
 			ASSERT(page != NULL);
 		}
 		else
 		{
-			return false; // Yoonjae's Question: 무조건 False 맞나?
+			return false;
+			// DONE: 무조건 False 맞나?
+			/* 맞는듯 왜냐하면 exception.c 에서 pagefault 발생 후에
+			 * vm_try_handle_fault 가 false return 하면 어처피 exit(-1) 됨 */
 		}
+	} else { // Yoonjae's TRY
+		uintptr_t rsp = user ? f->rsp : curr->user_rsp;
+		if((uintptr_t)addr > rsp-64 || (uintptr_t)addr >= (uintptr_t)(USER_STACK - (1<<20))) return false;
+		else if(write && !page->rw) return false;
 	}
 	/* else {
 		Yoonjae's comment
