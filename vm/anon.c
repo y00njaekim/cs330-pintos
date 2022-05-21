@@ -35,7 +35,7 @@ vm_anon_init (void) {
 	// 이는 swap_disk의 각 비트에 대응되는 swap_table을 비트맵으로 만듦으로써 해결.
 	// 왜 bitmap? -> bitmap의 각 비트는 t/f로 swap disk의 상태를 대응하여 표현하기에 좋다.
 	// free-map.c의 사용법을 참고.
-	swap_table = bitmap_create(sizeof(swap_disk));	// QUESTION: swap_disk의 크기는?
+	swap_table = bitmap_create((size_t)disk_size(swap_disk));	// QUESTION: swap_disk의 크기는?
 }
 
 /* Initialize the file mapping */
@@ -61,22 +61,22 @@ anon_swap_in (struct page *page, void *kva) {
 	 * (2) swapped_location 가져오면, 그 위치부터 disk_read
 	 * (3) swap_table에 해당 disk부분 할당 해제된 것으로 표시
 	 */
-	size_t swapped_location = anon_page->swap_loc;
+	disk_sector_t swapped_location = anon_page->swap_loc;
 	if(swapped_location == NULL) return false;	// (1) swap out된 적이 없습니다! 
 
 	disk_sector_t disk_offset;
 	void *buffer;
 	struct thread *curr = thread_current();
-	buffer = page->frame->kva;
+	buffer = kva;
 	disk_offset = swapped_location;
 	int iteration = PGSIZE/DISK_SECTOR_SIZE;
 	while(iteration) {
 		disk_read(swap_disk, disk_offset, buffer);								// (2)
-		bitmap_set_multiple(swap_table, disk_offset, DISK_SECTOR_SIZE, false);	// (3)
-		disk_offset += DISK_SECTOR_SIZE;
+		disk_offset += 1;
 		buffer += DISK_SECTOR_SIZE;
 		iteration--;
 	}
+	bitmap_set_multiple(swap_table, swapped_location, PGSIZE/DISK_SECTOR_SIZE, false);	// (3)
 	return true;
 }
 /* 이홍기의 생각 
@@ -110,10 +110,10 @@ anon_swap_in (struct page *page, void *kva) {
  * -> bitmap.c의 bitmap_scan 이용
  * bitmap_scan: bitmap을 돌면서, 처음으로 CNT개수의 비트가 value로 매핑되어있는 공간을 찾고 starting index 돌려준다.
  */
-static size_t
+static disk_sector_t
 find_free_slot_in_swap_disk() {
 	// swap_table에서 빈 공간으로 마킹되어 있는 PGSIZE 길이의 공간을 찾고, true(할당됨)로 바꾼다.
-	size_t idx = bitmap_scan_and_flip(swap_table, 0, PGSIZE, false);
+	disk_sector_t idx = bitmap_scan_and_flip(swap_table, 0, PGSIZE/DISK_SECTOR_SIZE, false);
 	return idx;
 }
 /* Swap out the page by writing contents to the swap disk. */
@@ -126,7 +126,7 @@ anon_swap_out (struct page *page) {
 	 * (3) 데이터의 위치를 page struct에 저장 (swapped location)
 	 * (4) 더 이상의 free slot이 없다면, panic the kernel
 	 */
-	size_t swapped_location;
+	disk_sector_t swapped_location;
 	disk_sector_t disk_offset;	// QUSETION: disk_offset은 bitmap의 위치와 같은가?
 	void *buffer;	// memory -> buffer -> disk 자료형 무엇?
 	struct thread *curr = thread_current();
@@ -152,7 +152,7 @@ anon_swap_out (struct page *page) {
 		// [1],[2] 잘못생각했다.
 		// 버퍼의 주소를 메모리 주소로 주면, 알아서 그 주소로부터 DISK_SECTOR_SIZE만큼 복사
 		disk_write(swap_disk, disk_offset, buffer);	// 버퍼 주소부터 512비트를 copy한다.
-		disk_offset += DISK_SECTOR_SIZE;
+		disk_offset += 1;
 		buffer += DISK_SECTOR_SIZE;
 		iteration--;
 	}
@@ -161,7 +161,8 @@ anon_swap_out (struct page *page) {
 	// palloc을 해버리면 page 자체 공간이 할당 해제되는데, frame의 내용만 copy되고 초기화되는 것이므로 pml4_clear_page가 적합해보이지만,
 	// pml4_clear_page는 not_present로만 바꿔준다.
 	// not_present는 page_fault에서 쓰였던 인자이므로 PF 관련 이슈 생기면 여기부터 확인해보기!
-	pml4_clear_page(curr->pml4, page);
+	pml4_clear_page(curr->pml4, page->va);
+	pml4_set_dirty(curr->pml4, page->va, false);
 	// (3) 데이터의 위치를 page struct에 저장
 	anon_page->swap_loc = swapped_location;
 	return true;
