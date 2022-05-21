@@ -41,18 +41,25 @@ file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 /* Swap in the page by read contents from the file. */
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
-	struct file_page *file_page UNUSED = &page->file;
-	file_read_at(file_page->file, kva, PGSIZE, file_page->swap_loc);
-	return true;
+	struct file_page *file_page = &page->file;
+	bool success = true;
+	off_t size = file_page->aux->page_read_bytes;
+	success = file_read_at(file_page->file, kva, size, file_page->swap_loc) == size;	// bitmap.c bitmap_read 참고
+	memset(kva+file_page->aux->page_read_bytes, 0, file_page->aux->page_zero_bytes);	// 꼬다리 안채워진 부분 0으로 초기화
+	return success;
 }
 
 /* Swap out the page by writeback contents to the file. */
 static bool
 file_backed_swap_out (struct page *page) {
-	struct file_page *file_page UNUSED = &page->file;
-	file_write_at(file_page->file, page->frame->kva, PGSIZE, 오프셋);
-	pml4_clear_page(&thread_current()->pml4, page);
-	file_page->swap_loc = 오프셋;
+	struct file_page *file_page = &page->file;
+struct thread *curr = thread_current();
+	if(pml4_is_dirty(curr->pml4, page->va)) {
+		file_write_at(file_page->file, page->va, file_page->aux->page_read_bytes, file_page->aux->ofs);	// PGSIZE 맞나? 만약 페이지 내에 일부분만 쓰는거라면? page_read_bytes?
+		pml4_set_dirty(curr->pml4, page->va, false);
+	}
+	pml4_clear_page(&thread_current()->pml4, page->va);
+	file_page->swap_loc = file_page->aux->ofs;	// 오프셋 aux로 저장중이면 필요없지않나?
 	return true;
 }
 
