@@ -511,6 +511,9 @@ mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
 
 void
 munmap (void *addr) {
-	uaddr_validity_check(addr);		// 2022.05.18 uaddr_validity_check 확인하기 -> 수정해두었음
-	do_munmap(addr);
+	uaddr_validity_check(addr); // 2022.05.18 uaddr_validity_check 확인하기 -> 수정해두었음
+	struct page *p = spt_find_page(&thread_current()->spt, addr);
+	if(p != NULL && p->file.aux->mmaped_va == addr) {
+		do_munmap(addr);
+	}
 }

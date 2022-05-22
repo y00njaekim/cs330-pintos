@@ -191,13 +191,17 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	struct supplemental_page_table *spt UNUSED = &curr->spt;
 	struct page *page = NULL;
 
-	if(is_kernel_vaddr(addr) || addr > USER_STACK || !not_present) return false; // not present: write on read-only page
+	if(is_kernel_vaddr(addr) && user)
+		return false;
+	if (!not_present)
+		return false; // not present: write on read-only page
+	if(write && !not_present) return false;
 
 	/* Yoonjae's Check: 등호 조건 보기 */
 	page = spt_find_page(&thread_current()->spt, addr);
 	if(page == NULL) {
 		uintptr_t rsp = user ? f->rsp : curr->user_rsp;
-		if((uintptr_t)addr > rsp-64 && curr->stack_ceiling > (uintptr_t)addr && (uintptr_t)addr >= (uintptr_t)(USER_STACK - (1<<20))) {
+		if((uintptr_t)addr > rsp-64 && curr->stack_ceiling > (uintptr_t)addr && (uintptr_t)USER_STACK > (uintptr_t)addr && (uintptr_t)addr >= (uintptr_t)(USER_STACK - (1<<20))) {
 			if(!vm_alloc_page(VM_ANON | VM_MARKER_0, addr, true)) return false;
 			vm_stack_growth(addr);
 			page = spt_find_page(&thread_current()->spt, addr);
@@ -210,11 +214,13 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 			/* 맞는듯 왜냐하면 exception.c 에서 pagefault 발생 후에
 			 * vm_try_handle_fault 가 false return 하면 어처피 exit(-1) 됨 */
 		}
-	} else { // Yoonjae's TRY
-		uintptr_t rsp = user ? f->rsp : curr->user_rsp;
-		if((uintptr_t)addr > rsp-64 || (uintptr_t)addr >= (uintptr_t)(USER_STACK - (1<<20))) return false;
-		else if(write && !page->rw) return false;
-	}
+	} 
+	// else { // Yoonjae's TRY
+	// 	uintptr_t rsp = user ? f->rsp : curr->user_rsp;
+	// 	if((uintptr_t)addr > rsp-64 || (uintptr_t)addr >= (uintptr_t)(USER_STACK - (1<<20))) return false;
+	// 	else if(write && !page->rw) return false;
+	// }
+	if(write && !page->rw) return false;
 	/* else {
 		Yoonjae's comment
 		페이지가 있어

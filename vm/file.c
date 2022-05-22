@@ -67,7 +67,7 @@ file_backed_swap_out (struct page *page) {
 static void
 file_backed_destroy (struct page *page) {
 	struct file_page *file_page UNUSED = &page->file; // type casting
-	struct aux_load_segment *aux_copy = file_page->aux;
+	struct aux_do_mmap *aux_copy = file_page->aux;
 	/* Memory Mapped Files
 	 * close하고, dirty 경우 write back the changes into the file
 	 * page struct를 free할 필요 없다 - caller가 할 일 */
@@ -90,7 +90,7 @@ file_backed_destroy (struct page *page) {
 
 static bool
 lazy_do_mmap (struct page *page, void *aux) {
-	struct aux_load_segment *aux_copy = aux; // type casting
+	struct aux_do_mmap *aux_copy = aux; // type casting
 	ASSERT(VM_TYPE(page->operations->type) == VM_FILE);
 	file_seek(aux_copy->file, aux_copy->ofs);
 	void *kpage = page->frame->kva;
@@ -100,6 +100,7 @@ lazy_do_mmap (struct page *page, void *aux) {
 	memset (page->va + aux_copy->page_read_bytes, 0, aux_copy->page_zero_bytes);	// kpage 대신 page의 frame에 있는 kva
 	page->file.aux = aux_copy;
 	page->file.file = aux_copy->file;
+	pml4_set_dirty(thread_current()->pml4, page->va, false);
 	return true;
 }
 
@@ -112,6 +113,7 @@ do_mmap (void *addr, size_t length, int writable,
 	// load_segment와 같이, length 길이의 파일 요소를 PGSIZE 단위로 끊어서 입력한다. 
 	// 1. length가 불러온 파일의 길이보다 길면 error -> 어떻게 처리?
 	// if(length > file_length(file) || length < 0) return NULL;
+	uintptr_t mmaped_va = addr;
 	struct file *file_copy = file_reopen(file);
 	if(file_copy == NULL) return NULL;
 	size_t filelength = file_length(file);
@@ -129,10 +131,11 @@ do_mmap (void *addr, size_t length, int writable,
 		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-		struct aux_load_segment *aux = malloc(sizeof(struct aux_load_segment));
+		struct aux_do_mmap *aux = malloc(sizeof(struct aux_do_mmap));
 		if(aux == NULL) return NULL;
   	// Yoonjae's Question: reopen 필요한 거 맞아?
 		aux->file = file_copy; // QUESTION: 바뀐 offset 반영 위해 file_reopen(file) ?
+		aux->mmaped_va = mmaped_va;
 		aux->page_read_bytes = page_read_bytes;
 		aux->page_zero_bytes = page_zero_bytes;
 		aux->ofs = offset;
@@ -166,6 +169,8 @@ do_munmap (void *addr) {
 	uintptr_t addr_copy = (uintptr_t)addr;
 	struct page *page = spt_find_page(&curr->spt, (void *)addr_copy);
 	if (page == NULL) return exit(-1);
+	ASSERT(page->file.aux->mmaped_va == addr);
+	ASSERT(page->operations->type == VM_FILE);
 
 	struct file *file_copy = page->file.file;
 	while (page != NULL && page->file.aux->page_read_bytes == PGSIZE){
@@ -176,7 +181,8 @@ do_munmap (void *addr) {
 		page = spt_find_page(&curr->spt, addr_copy);
 	}
 	if(page->file.aux->page_read_bytes != 0) {
-			spt_remove_page(&curr->spt, page);
+		hash_delete(&curr->spt, &page->hash_elem);
+		spt_remove_page(&curr->spt, page);
 	}
 	file_close(file_copy);
 
