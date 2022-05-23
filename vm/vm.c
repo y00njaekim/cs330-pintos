@@ -175,7 +175,8 @@ vm_dealloc_frame (struct frame *frame) {
 static void
 vm_stack_growth (void *addr UNUSED) {
 	void *va = pg_round_down(addr);
-	thread_current()->stack_ceiling = va;
+	uintptr_t stc = thread_current()->stack_ceiling;
+	thread_current()->stack_ceiling = pg_round_down(addr) < stc ? pg_round_down(addr) : stc;
 }
 
 /* Handle the fault on write_protected page */
@@ -201,8 +202,19 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	page = spt_find_page(&thread_current()->spt, addr);
 	if(page == NULL) {
 		uintptr_t rsp = user ? f->rsp : curr->user_rsp;
-		if((uintptr_t)addr > rsp-64 && curr->stack_ceiling > (uintptr_t)addr && (uintptr_t)USER_STACK > (uintptr_t)addr && (uintptr_t)addr >= (uintptr_t)(USER_STACK - (1<<20))) {
+		if ((uintptr_t)addr > rsp - 64 && (uintptr_t)USER_STACK > (uintptr_t)addr && (uintptr_t)addr >= (uintptr_t)(USER_STACK - (1 << 20))) {
+
 			if(!vm_alloc_page(VM_ANON | VM_MARKER_0, addr, true)) return false;
+			uintptr_t prev_stack_ceiling = curr->stack_ceiling;
+
+			struct page *temp_page = NULL;
+			int temp_addr = 0;
+			for (temp_addr = prev_stack_ceiling; temp_addr >= pg_round_down(addr); temp_addr -= PGSIZE) {
+				temp_page = spt_find_page(&thread_current()->spt, temp_addr);
+				if(temp_page == NULL) {
+					if(!vm_alloc_page(VM_ANON | VM_MARKER_0, temp_addr, true)) return false;
+				}
+			}
 			vm_stack_growth(addr);
 			page = spt_find_page(&thread_current()->spt, addr);
 			ASSERT(page != NULL);
@@ -212,7 +224,7 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 			return false;
 			// DONE: 무조건 False 맞나?
 			/* 맞는듯 왜냐하면 exception.c 에서 pagefault 발생 후에
-			 * vm_try_handle_fault 가 false return 하면 어처피 exit(-1) 됨 */
+				* vm_try_handle_fault 가 false return 하면 어처피 exit(-1) 됨 */
 		}
 	} 
 	// else { // Yoonjae's TRY

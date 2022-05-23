@@ -166,6 +166,25 @@ uaddr_validity_check(uint64_t uaddr) {
 	// TODO: 추가 사항 있는지 확인해보기
 }
 
+void uaddr_validity_check_multiple(void *addr, size_t size, bool writable) {
+	uaddr_validity_check(addr);
+	struct thread *curr = thread_current();
+	void *page_aligned_addr = pg_round_down(addr);
+	size_t page_size = size < PGSIZE ? size : PGSIZE;
+	if(is_kernel_vaddr(pg_round_down(page_aligned_addr+size))) exit(-1);
+	while(size > 0) {
+		// uaddr_validity_check(page_aligned_addr);
+		struct page *matched_page = spt_find_page(&curr->spt, page_aligned_addr);
+		if((writable && !(matched_page->rw)) || matched_page == NULL) exit(-1);
+		size -= page_size;
+		addr += PGSIZE;
+		page_size = size < PGSIZE ? size : PGSIZE;
+	}
+}
+
+
+
+
 /* halt
  * Terminates Pintos by calling power_off() */
 
@@ -325,7 +344,8 @@ filesize (int fd) {
 
 int
 read (int fd, void *buffer, unsigned size) {
-	uaddr_validity_check(buffer);
+	// uaddr_validity_check(buffer);
+	uaddr_validity_check_multiple(buffer, size, true);
 
 	int bytes_read;
 
@@ -378,7 +398,8 @@ read (int fd, void *buffer, unsigned size) {
 
 int
 write (int fd, const void *buffer, unsigned size) {
-	uaddr_validity_check((uint64_t) buffer);
+	// uaddr_validity_check((uint64_t) buffer);
+	uaddr_validity_check_multiple(buffer, size, false);
 	int bytes_written = 0;
 	sema_down(&file_sema);
 
