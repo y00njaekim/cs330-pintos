@@ -192,6 +192,7 @@ bool anon_initializer(struct page *page, enum vm_type type, void *kva) {
 /* Swap in the page by read contents from the swap disk. */
 static bool
 anon_swap_in(struct page *page, void *kva) {
+    // printf("anon 스왑인 들어왔어요\n");
     struct anon_page *anon_page = &page->anon;
 
     if (anon_page->sec_no == SIZE_MAX)
@@ -218,6 +219,7 @@ anon_swap_in(struct page *page, void *kva) {
 /* Swap out the page by writing contents to the swap disk. */
 static bool
 anon_swap_out(struct page *page) {
+    // printf("anon 스왑아웃 들어왔어요\n");
     struct anon_page *anon_page = &page->anon;
 
     // lock_acquire(&bitmap_lock);
@@ -257,4 +259,9 @@ anon_destroy (struct page *page) {
    * functions hash_clear(), hash_destroy(), hash_insert(),
    * hash_replace(), or hash_delete(), yields undefined behavior,
    * whether done in DESTRUCTOR or elsewhere. */
+    if (page->frame != NULL) {
+        list_remove(&(page->frame->frame_elem));
+        free(page->frame);
+    }
+    if(anon_page -> sec_no != SIZE_MAX) bitmap_set_multiple(disk_bitmap, anon_page->sec_no, 8, false);
 }

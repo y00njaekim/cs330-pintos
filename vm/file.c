@@ -31,16 +31,20 @@ vm_file_init (void) {
 bool
 file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
 	/* Set up the handler */
-	memset(&page->uninit, 0, sizeof(struct uninit_page));
+	// memset(&page->uninit, 0, sizeof(struct uninit_page));
 	page->operations = &file_ops;
 
 	struct file_page *file_page = &page->file;
-	file_page->swap_loc = NULL;
+	// file_page->swap_loc = NULL;
 }
 
 /* Swap in the page by read contents from the file. */
 static bool
 file_backed_swap_in (struct page *page, void *kva) {
+	// printf("스왑인 들어왔어요\n");
+	// DEBUG
+	if (page == NULL) return false;
+
 	struct file_page *file_page = &page->file;
 	bool success = true;
 	off_t size = file_page->aux->page_read_bytes;
@@ -54,18 +58,24 @@ static bool
 file_backed_swap_out (struct page *page) {
 	struct file_page *file_page = &page->file;
 	struct thread *curr = thread_current();
+	// printf("스왑아웃 들어왔어요\n");
 	if(pml4_is_dirty(curr->pml4, page->va)) {
-		file_write_at(file_page->file, page->va, file_page->aux->page_read_bytes, file_page->aux->ofs);	// PGSIZE 맞나? 만약 페이지 내에 일부분만 쓰는거라면? page_read_bytes?
+		file_seek(file_page->file, file_page->aux->ofs);
+		printf("ofs: %d\n", file_page->aux->ofs);
+		file_write(file_page->file, page->va, file_page->aux->page_read_bytes);
+		//file_write_at(file_page->file, page->va, file_page->aux->page_read_bytes, file_page->aux->ofs);	// PGSIZE 맞나? 만약 페이지 내에 일부분만 쓰는거라면? page_read_bytes?
 		pml4_set_dirty(curr->pml4, page->va, false);
 	}
-	pml4_clear_page(&thread_current()->pml4, page->va);
+	pml4_clear_page(curr->pml4, page->va);
 	file_page->swap_loc = file_page->aux->ofs;	// 오프셋 aux로 저장중이면 필요없지않나?
+	page->frame = NULL;
 	return true;
 }
 
 /* Destory the file backed page. PAGE will be freed by the caller. */
 static void
 file_backed_destroy (struct page *page) {
+	// printf("destroy 진입\n");
 	struct file_page *file_page UNUSED = &page->file; // type casting
 	struct aux_do_mmap *aux_copy = file_page->aux;
 	/* Memory Mapped Files
@@ -83,7 +93,11 @@ file_backed_destroy (struct page *page) {
    * functions hash_clear(), hash_destroy(), hash_insert(),
    * hash_replace(), or hash_delete(), yields undefined behavior,
    * whether done in DESTRUCTOR or elsewhere. */
-	free(file_page->aux);
+	// free(file_page->aux);
+	if(page->frame != NULL) {
+		list_remove(&(page->frame->frame_elem));
+		free(page->frame);
+	}
 	// file_close(file_page->file);	// ?: file_page 구조체 내의 file 가리키는 인자
 	// DONE: fd_table 닫아 줄 필요 있을까? 없을 듯 (with syscall close)
 }
