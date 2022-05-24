@@ -395,7 +395,7 @@ void page_copy (struct hash_elem *e, void *aux) {
 		if(aux_copy == NULL) exit(-1);
 		memcpy(aux_copy, p->uninit.aux, sizeof(struct aux_load_segment));
 		
-		if(!vm_alloc_page_with_initializer(p->uninit.type, p->va, p->rw, p->uninit.init, aux)) exit(-1);
+		if(!vm_alloc_page_with_initializer(p->uninit.type, p->va, p->rw, p->uninit.init, aux_copy)) exit(-1);
 	} else if(type == VM_ANON) {
 		/* Yoonjae's Question:. vm_alloc_page VS vm_alloc_page(lazy_load) 둘 중 뭐가 맞을까? */
 		if(!vm_alloc_page(p->operations->type, p->va, p->rw)) exit(-1);
@@ -413,10 +413,10 @@ void page_copy (struct hash_elem *e, void *aux) {
 			exit(-1);
 		}
 		struct page *np = spt_find_page(&thread_current()->spt, p->va);
-		np->file.file = file_reopen(aux_copy->file);
-		np->file.aux = aux_copy;
 
 		vm_do_claim_page(np);
+		np->file.file = file_reopen(aux_copy->file);
+		np->file.aux = aux_copy;
 		memcpy(np->frame->kva, p->frame->kva, PGSIZE);
 	}
 }; 
