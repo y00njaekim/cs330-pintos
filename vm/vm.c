@@ -10,7 +10,7 @@
 #include <string.h>
 #include "userprog/process.h"
 
-static struct semaphore frame_sema;
+// static struct semaphore frame_sema;
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -25,7 +25,7 @@ vm_init (void) {
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
 	list_init(&frame_list);
-	sema_init(&frame_sema, 1);
+	// sema_init(&frame_sema, 1);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -362,7 +362,7 @@ vm_claim_page (void *va UNUSED) {
 static bool
 vm_do_claim_page (struct page *page) {
 
-	sema_down(&frame_sema);
+	// sema_down(&frame_sema);
 	struct frame *frame = vm_get_frame ();
 
 	/* Set links */
@@ -375,9 +375,9 @@ vm_do_claim_page (struct page *page) {
 	// pml4_set_page
 	// if(pml4_get_page (thread_current()->pml4, page->va) == NULL
 	// 	&& pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->rw)) return swap_in (page, frame->kva);
-	if(pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->rw)) { sema_up(&frame_sema); return swap_in (page, frame->kva);}
+	if(pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->rw)) return swap_in(page, frame -> kva);// { sema_up(&frame_sema); return swap_in (page, frame->kva);}
 
-	sema_up(&frame_sema);	
+	// sema_up(&frame_sema);	
 	// Yoonjae's QUESTION: 실패시 메모리 해제 안해도 됨 !?
 	return false; // memory allocation failed
 }
