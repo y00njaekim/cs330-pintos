@@ -398,14 +398,15 @@ remove_elem (struct hash *h, struct hash_elem *e) {
 /* page functions, reference: GitBook */
 
 /* Returns a hash value for page p. */
-unsigned
+
+hash_hash_func*
 page_hash (struct hash_elem *p_, void *aux UNUSED) {
   const struct page *p = hash_entry (p_, struct page, hash_elem);
   return hash_bytes (&p->va, sizeof p->va);
 }
 
 /* Returns true if page a precedes page b. */
-bool
+hash_less_func*
 page_less (struct hash_elem *a_,
            struct hash_elem *b_, void *aux UNUSED) {
   struct page *a = hash_entry (a_, struct page, hash_elem);
@@ -421,7 +422,8 @@ page_lookup (const void *address) {
   struct hash_elem *e;
   struct thread *curr = thread_current();
 
-  p.va = pg_round_down(address);
+  p.va = pg_round_down(address); // Check: pg_round_down 추가 설정
+  // p.va = address;
 	// TODO: pages 수정하기 (struct thread안에 spt을 정의해야하는듯?)
   e = hash_find (&curr->spt.pages, &p.hash_elem);	
   return e != NULL ? hash_entry (e, struct page, hash_elem) : NULL;
