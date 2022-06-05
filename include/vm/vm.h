@@ -66,11 +66,7 @@ struct page {
 struct frame {
 	void *kva;				/* kernel virtual address */
 	struct page *page;		/* page structure */
-	// DELETE
-	struct list_elem frame_elem;
 };
-
-struct list frame_list;
 
 /* The function table for page operations.
  * This is one way of implementing "interface" in C.

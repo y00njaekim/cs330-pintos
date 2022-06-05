@@ -163,15 +163,6 @@ void
 uaddr_validity_check(uint64_t uaddr) {
 	// project3에서 pml4_get_page의 경우 매칭이 안되면 PF, but bogus fault 인 경우도 있으므로 이 경우 오류로 생각하지 않는다.
 	if ((uaddr == NULL) || is_kernel_vaddr(uaddr)) exit(-1); // || (pml4_get_page(thread_current()->pml4, uaddr) == NULL)) exit(-1);
-	else {
-		struct page *page = spt_find_page(&((*(thread_current())).spt), uaddr);
-		if (page == NULL) {
-			exit(-1);
-		}
-		else {
-			return page;
-		}
-	}
 	// TODO: 추가 사항 있는지 확인해보기
 }
 
@@ -410,6 +401,7 @@ write (int fd, const void *buffer, unsigned size) {
 	// uaddr_validity_check((uint64_t) buffer);
 	uaddr_validity_check_multiple(buffer, size, false);
 	int bytes_written = 0;
+	sema_down(&file_sema);
 
 	// (3) fd = 1:	writes on the console using putbuf()
 	if(fd == 1) {
@@ -419,14 +411,13 @@ write (int fd, const void *buffer, unsigned size) {
 		// (2) 해당 fd에 해당하는 file 매치
 		struct file *matched_file = fd_match_file(fd);
 		if(matched_file == NULL) {
-			// sema_up(&file_sema);
+			sema_up(&file_sema);
 			return -1;
 		}
 		// (4) fd != 1:	writes size bytes from buffer to the open file
-	sema_down(&file_sema);
 		bytes_written = file_write(matched_file, buffer, size);
-	sema_up(&file_sema);
 	}
+	sema_up(&file_sema);
 	return bytes_written;
 }
 

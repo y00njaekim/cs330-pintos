@@ -8,22 +8,11 @@
 #include "filesys/inode.h"
 #include "filesys/directory.h"
 #include "devices/disk.h"
-#include "threads/malloc.h"
-#include "vm/vm.h"
-#include "vm/inspect.h"
-#include "threads/mmu.h"
-#include "lib/kernel/hash.h"
-#include "userprog/syscall.h"
-#include "lib/user/syscall.h"
-#include <string.h>
-#include "userprog/process.h"
 
 /* The disk that contains the file system. */
 struct disk *filesys_disk;
 
 static void do_format (void);
-
-// static struct semaphore fileSysLock;
 
 /* Initializes the file system module.
  * If FORMAT is true, reformats the file system. */
@@ -34,8 +23,6 @@ filesys_init (bool format) {
 		PANIC ("hd0:1 (hdb) not present, file system initialization failed");
 
 	inode_init ();
-
-	sema_init(&fileSysLock, 1);
 
 #ifdef EFILESYS
 	fat_init ();
@@ -73,7 +60,6 @@ filesys_done (void) {
  * or if internal memory allocation fails. */
 bool
 filesys_create (const char *name, off_t initial_size) {
-	sema_down(&fileSysLock);
 	disk_sector_t inode_sector = 0;
 	struct dir *dir = dir_open_root ();
 	bool success = (dir != NULL
@@ -84,7 +70,6 @@ filesys_create (const char *name, off_t initial_size) {
 		free_map_release (inode_sector, 1);
 	dir_close (dir);
 
-	sema_up(&fileSysLock);
 	return success;
 }
 
@@ -95,8 +80,6 @@ filesys_create (const char *name, off_t initial_size) {
  * or if an internal memory allocation fails. */
 struct file *
 filesys_open (const char *name) {
-
-	sema_down(&fileSysLock);
 	struct dir *dir = dir_open_root();
 	struct inode *inode = NULL;
 
@@ -104,9 +87,7 @@ filesys_open (const char *name) {
 		dir_lookup (dir, name, &inode);
 	dir_close (dir);
 
-	struct file *file = file_open(inode);
-	sema_up(&fileSysLock);
-	return  file; //file_open(inode);
+	return file_open(inode);
 }
 
 /* Deletes the file named NAME.
@@ -115,13 +96,10 @@ filesys_open (const char *name) {
  * or if an internal memory allocation fails. */
 bool
 filesys_remove (const char *name) {
-
-	sema_down(&fileSysLock);
 	struct dir *dir = dir_open_root ();
 	bool success = dir != NULL && dir_remove (dir, name);
 	dir_close (dir);
 
-	sema_up(&fileSysLock);
 	return success;
 }
 
