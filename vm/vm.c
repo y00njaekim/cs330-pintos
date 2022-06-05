@@ -5,6 +5,12 @@
 #include "vm/inspect.h"
 #include "threads/mmu.h"
 #include "lib/kernel/hash.h"
+#include "userprog/syscall.h"
+#include "lib/user/syscall.h"
+#include <string.h>
+#include "userprog/process.h"
+
+// static struct semaphore frame_sema;
 
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
@@ -18,6 +24,8 @@ vm_init (void) {
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
+	list_init(&frame_list);
+	// sema_init(&frame_sema, 1);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -67,10 +75,10 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		// CHECK: Using VM_TYPE macro defined in vm.h can be handy.
 		bool (*initializer)(struct page *, enum vm_type, void *);	// 마지막 void 포인터는 address (ex)kva)
 		if(VM_TYPE(type) == VM_ANON) initializer = anon_initializer;	// 얘처럼 하면 왜 안됨?
-		else if(VM_TYPE(type) == VM_ANON) initializer = file_backed_initializer;
+		else if(VM_TYPE(type) == VM_FILE) initializer = file_backed_initializer;
 		
 		// else if file backed = fildfds
-		uninit_new(npage, upage, init, type, aux, initializer);	// QUESTION: initializer 무엇?
+		uninit_new(npage, pg_round_down(upage), init, type, aux, initializer);	// QUESTION: initializer 무엇?
 
 		// CHECK: modify the field after calling the uninit_new
 		// QUESTION: writable 설정은 어디서?
@@ -110,21 +118,64 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 /* Get the struct frame, that will be evicted. */
 static struct frame *
 vm_get_victim (void) {
-	struct frame *victim = NULL;
-	 /* TODO: The policy for eviction is up to you. */
-	 /* NOTICE: vm_evict_frame에서 victim이 null인경우 에러처리 안했기 때문에 
-	  * 이 함수에서 victim get 못하면 NULL 반환해야 한다 */
-
-	return victim;
+// printf("vm_get_victim 들어왔어요\n");
+    struct frame *victim = NULL;
+    /* TODO: The policy for eviction is up to you. */
+    /* NOTICE: vm_evict_frame에서 victim이 null인경우 에러처리 안했기 때문에 
+     * 이 함수에서 victim get 못하면 NULL 반환해야 한다 */
+    // 2022.05.18 
+    // TODO: 가장 오랫동안 안쓰인 page 가져올건지? 단순히 FIFO로 가져올건지? policy 결정하기
+    // victim page는 frame의 page list 탐색하여 가져와야 하므로 frame에 list_entry 사용할 수 있도록 list_elem 정의하기
+    // 2022.05.19
+    // Policy: 가장 오래된 것? 또는 최근에 쓰이지 않은 것을 victim으로. 
+    // pml4_is_accessed 이용하여 최근에 쓰이지 않은 것 evict하기.
+    // QUESTION: 무엇에 대해 루프 돌면서 pml4_is_accessed 불러야 하는가?
+    size_t lru_len = list_size(&frame_list);
+    struct list_elem *tmp = list_begin(&frame_list);
+    struct frame *tmp_frame;
+    struct list_elem *next_tmp;
+    for (size_t i = 0; i < lru_len; i++) {
+        // printf("for문 도는중입니다. %d", i);
+        tmp_frame = list_entry(tmp, struct frame, frame_elem);
+        if (pml4_is_accessed(thread_current()->pml4, tmp_frame->page->va)) {
+            // printf("accessed가 true입니다.\n");
+            pml4_set_accessed(thread_current()->pml4, tmp_frame->page->va, false);
+            next_tmp = list_next(tmp);
+            list_remove(tmp);
+            list_push_back(&frame_list, tmp);
+            tmp = next_tmp;
+            continue;
+        }
+        if (victim == NULL) {
+            // printf("victim이 NULL입니다.\n");
+            victim = tmp_frame;
+            next_tmp = list_next(tmp);
+            list_remove(tmp);
+            tmp = next_tmp;
+            continue;
+        }
+        tmp = list_next(tmp);
+    }
+    if (victim == NULL)
+        {victim = list_entry(list_pop_front(&frame_list), struct frame, frame_elem);}
+    // /printf("victim 값: %p\n", victim);
+    // printf("victim->page 값: %p\n", victim->page);
+    // printf("victim kva값: %p\n", victim->kva);
+    return victim;
 }
 
 /* Evict one page and return the corresponding frame.
  * Return NULL on error.*/
 static struct frame *
 vm_evict_frame (void) {
-	struct frame *victim UNUSED = vm_get_victim ();
+	struct frame *victim = vm_get_victim ();
 	/* TODO: swap out the victim and return the evicted frame. */
-	swap_out(victim->page);
+	// if(victim->page != NULL && !swap_out(victim->page))
+	// return NULL;
+	if(!swap_out(victim->page))
+		return NULL;
+	victim->page = NULL;
+	memset(victim->kva, 0, PGSIZE);
 	return victim;
 }
 
@@ -136,15 +187,18 @@ static struct frame *
 vm_get_frame (void) {
 	struct frame *frame = NULL;
 	/* TODO: Fill this function. */
-	frame = malloc(sizeof(struct frame));	// TODO: 에러 핸들링
 	// palloc_get_page(PAL_USER)
 	void *frame_get = palloc_get_page(PAL_USER);		// TRY: 문제있으면 void *로 캐스팅 없이
+
 
 	// Obtains a single free page and returns its kernel virtual address. 즉, frame_get은 frame->kva와 같다.
 	// if(frame_get == NULL) return vm_evict_frame();			// evict the page and return it
 	// QUESTION: vm_evict_frame()에서 error가 발생하면 null을 리턴하는데, vm_get_frame도 null 리턴하는게 맞나 또는 error handling 필요?
-	if(frame_get == NULL) PANIC("todo"); // You don't need to handle swap out for now in case of page allocation failure. Just mark those case with PANIC ("todo") for now.
+	// DELETE
+	if(frame_get == NULL)
+		return vm_evict_frame();  // PANIC("todo"); // You don't need to handle swap out for now in case of page allocation failure. Just mark those case with PANIC ("todo") for now.
 
+	frame = malloc(sizeof(struct frame));	// TODO: 에러 핸들링
 	frame->kva = frame_get;
 	frame->page = NULL; 	// CHECK
 	
@@ -165,7 +219,8 @@ vm_dealloc_frame (struct frame *frame) {
 static void
 vm_stack_growth (void *addr UNUSED) {
 	void *va = pg_round_down(addr);
-	thread_current()->stack_ceiling = va;
+	uintptr_t stc = thread_current()->stack_ceiling;
+	thread_current()->stack_ceiling = pg_round_down(addr) < stc ? pg_round_down(addr) : stc;
 }
 
 /* Handle the fault on write_protected page */
@@ -181,23 +236,47 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	struct supplemental_page_table *spt UNUSED = &curr->spt;
 	struct page *page = NULL;
 
-	if(is_kernel_vaddr(addr) || addr > USER_STACK || !not_present) return false; // not present: write on read-only page
+	if(is_kernel_vaddr(addr) && user)
+		return false;
+	if (!not_present)
+		return false; // not present: write on read-only page
+	if(write && !not_present) return false;
 
 	/* Yoonjae's Check: 등호 조건 보기 */
 	page = spt_find_page(&thread_current()->spt, addr);
 	if(page == NULL) {
 		uintptr_t rsp = user ? f->rsp : curr->user_rsp;
-		if((uintptr_t)addr > rsp-64 && curr->stack_ceiling > (uintptr_t)addr && (uintptr_t)addr > (uintptr_t)(USER_STACK - (1<<20))) {
-			if(!vm_alloc_page(VM_ANON, pg_round_down(addr), true)) return false;
+		if ((uintptr_t)addr > rsp - 64 && (uintptr_t)USER_STACK > (uintptr_t)addr && (uintptr_t)addr >= (uintptr_t)(USER_STACK - (1 << 20))) {
+
+			if(!vm_alloc_page(VM_ANON | VM_MARKER_0, addr, true)) return false;
+			uintptr_t prev_stack_ceiling = curr->stack_ceiling;
+
+			struct page *temp_page = NULL;
+			int temp_addr = 0;
+			for (temp_addr = prev_stack_ceiling; temp_addr >= pg_round_down(addr); temp_addr -= PGSIZE) {
+				temp_page = spt_find_page(&thread_current()->spt, temp_addr);
+				if(temp_page == NULL) {
+					if(!vm_alloc_page(VM_ANON | VM_MARKER_0, temp_addr, true)) return false;
+				}
+			}
 			vm_stack_growth(addr);
 			page = spt_find_page(&thread_current()->spt, addr);
 			ASSERT(page != NULL);
 		}
 		else
 		{
-			return false; // Yoonjae's Question: 무조건 False 맞나?
+			return false;
+			// DONE: 무조건 False 맞나?
+			/* 맞는듯 왜냐하면 exception.c 에서 pagefault 발생 후에
+				* vm_try_handle_fault 가 false return 하면 어처피 exit(-1) 됨 */
 		}
-	}
+	} 
+	// else { // Yoonjae's TRY
+	// 	uintptr_t rsp = user ? f->rsp : curr->user_rsp;
+	// 	if((uintptr_t)addr > rsp-64 || (uintptr_t)addr >= (uintptr_t)(USER_STACK - (1<<20))) return false;
+	// 	else if(write && !page->rw) return false;
+	// }
+	if(write && !page->rw) return false;
 	/* else {
 		Yoonjae's comment
 		페이지가 있어
@@ -282,17 +361,23 @@ vm_claim_page (void *va UNUSED) {
 /* Claim the PAGE and set up the mmu. */
 static bool
 vm_do_claim_page (struct page *page) {
+
+	// sema_down(&frame_sema);
 	struct frame *frame = vm_get_frame ();
 
 	/* Set links */
 	frame->page = page;
 	page->frame = frame;
 
+	list_push_back(&frame_list, &(frame->frame_elem));
+
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 	// pml4_set_page
-	if(pml4_get_page (thread_current()->pml4, page->va) == NULL
-		&& pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->rw)) return swap_in (page, frame->kva);
-		
+	// if(pml4_get_page (thread_current()->pml4, page->va) == NULL
+	// 	&& pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->rw)) return swap_in (page, frame->kva);
+	if(pml4_set_page(thread_current()->pml4, page->va, frame->kva, page->rw)) return swap_in(page, frame -> kva);// { sema_up(&frame_sema); return swap_in (page, frame->kva);}
+
+	// sema_up(&frame_sema);	
 	// Yoonjae's QUESTION: 실패시 메모리 해제 안해도 됨 !?
 	return false; // memory allocation failed
 }
@@ -303,10 +388,84 @@ supplemental_page_table_init (struct supplemental_page_table *spt UNUSED) {
 	hash_init (&spt->pages, page_hash, page_less, NULL);	// TODO: page_hash, page_less 정의하기 (confluence 에서 복사)
 }
 
+// Customized hash_action_func
+void page_copy (struct hash_elem *e, void *aux) {
+	/* Yoonjae's TODO: 포인터로 넘겨주는 것들은 memcpy 로 새롭게 카피본 만들어서 넘겨줘야 할 것 같음 */
+	struct page *p = hash_entry(e, struct page, hash_elem);
+	enum vm_type type = VM_TYPE(p->operations->type);
+
+	if(type == VM_UNINIT) {
+		/* VM_ANON | VM_MARKER_0 이렇게 uninitialized page 로 만들어진 page 의 type 은 uninit.type 으로 참고
+		 * initialize 실행 후에는 anon file 등으로 고정될 듯 */
+		struct aux_load_segment *aux_copy = malloc(sizeof(struct aux_load_segment));
+		if(aux_copy == NULL) exit(-1);
+		memcpy(aux_copy, p->uninit.aux, sizeof(struct aux_load_segment));
+		
+		if(!vm_alloc_page_with_initializer(p->uninit.type, p->va, p->rw, p->uninit.init, aux_copy)) exit(-1);
+	} else if(type == VM_ANON) {
+		/* Yoonjae's Question:. vm_alloc_page VS vm_alloc_page(lazy_load) 둘 중 뭐가 맞을까? */
+		if(!vm_alloc_page(p->operations->type, p->va, p->rw)) exit(-1);
+		struct page *np = spt_find_page(&thread_current()->spt, p->va);
+		vm_do_claim_page(np);
+		memcpy(np->frame->kva, p->frame->kva, PGSIZE);
+	}
+	else if (type == VM_FILE) {
+		struct aux_load_segment *aux_copy = malloc(sizeof(struct aux_load_segment));
+		if(aux_copy == NULL) exit(-1);
+		memcpy(aux_copy, p->file.aux, sizeof(struct aux_load_segment));
+
+		if(!vm_alloc_page(p->operations->type, p->va, p->rw)) {
+			free(aux_copy);
+			exit(-1);
+		}
+		struct page *np = spt_find_page(&thread_current()->spt, p->va);
+
+		vm_do_claim_page(np);
+		np->file.file = file_reopen(aux_copy->file);
+		np->file.aux = aux_copy;
+		memcpy(np->frame->kva, p->frame->kva, PGSIZE);
+	}
+}; 
+
 /* Copy supplemental page table from src to dst */
 bool
 supplemental_page_table_copy (struct supplemental_page_table *dst UNUSED,
 		struct supplemental_page_table *src UNUSED) {
+	// hash_apply 이해하고,
+	// hash_apply의 action 항에 copy하는 action 정의해서 넣기
+	hash_apply(&src->pages, page_copy);
+	// 우리가 아는 hash_apply: hash의 각 항을 순회하면서 각 항에 action을 적용
+	// 2022.05.18
+	// QUESTION: action으로 dst 어떻게 넘겨주나? -> aux 넘겨주듯이 src의 자료구조나 action_copy의 자료구조로 넘겨야하나?
+	// action_copy (page, aux) { 
+	// 	aux->dst
+	// 	new_page = vm_alloc_page(page->type, page->va, page->rw);
+	// 	vm_claim_page(new_page);
+		// spt의 내용은 카피하지 않아도 되나?
+	// }
+	// copy는 uninit page를 할당하고, 바로 claim 해주는 것으로 한다
+	// You will need to allocate uninit page and claim them immediately. (GitBook)
+	return true;
+}
+
+/* action_copy 
+ * 1. uninit copy
+ * vm_alloc_page_with_initializer
+ * 2. anon copy
+ * You will need to allocate uninit page and claim them immediately.
+ * vm_alloc_page_with_initializer 그리고 여기서 anon_initializer 
+ * vm_claim_page 하고, 끝.
+ * 3. file-backed copy 
+ * vm_alloc_page_with_initializer 하고,
+ * vm_claim_page.
+ */
+
+void page_kill (struct hash_elem *e, void *aux) {
+	struct page *p = hash_entry(e, struct page, hash_elem);
+	enum vm_type type = VM_TYPE(p->operations->type);
+	// Yoonjae's TODO: VM_FILE 만 munmap / else destroy
+	// spt_remove_page(&thread_current()->spt, p);
+	destroy(p);
 }
 
 /* Free the resource hold by the supplemental page table */
@@ -314,4 +473,28 @@ void
 supplemental_page_table_kill (struct supplemental_page_table *spt UNUSED) {
 	/* TODO: Destroy all the supplemental_page_table hold by thread and
 	 * TODO: writeback all the modified contents to the storage. */
+	// hash_apply(spt->pages, action_destroy);
+	// action_destroy(page, aux) { destroy(page) };
+	// hash_apply의 action에 destroy하는 action 정의해서 넣기 (hash_destroy 이용 가능할듯? -> destroy(page))
+	// action
+	// elem (=page), aux 들어올텐데
+	// destroy(page)
+	// writeback all the modified contents to the storage.
+	// dirty인 비트들 확인하고 
+	// pml4가 dirty로 set 되어있으면 원래 storage에 복사
+	// 그 뒤, dirty 해제
+	hash_destroy(&spt->pages, page_kill);
 }
+
+/* 2022.05.18 
+ * hash_destroy(, action_destroy)
+ * action_destroy의 경우
+ * pml4_is_dirty
+ * file_write_at
+ * pml4_is_dirty(, false)
+ */
+// destroy 하면 안에 있는 page들 다 dealloc? 
+// vm_dealloc_page 쓸텐데 어떻게 쓸지 생각. 
+// spt_remove_page ? 이거는 bool 함수이고, true 확인할 필요 없나?
+// 디버그할때, spt_remove_page() != true -> 이상한거니까 체크할 수 있지 않나? 아니다.
+// 결론: vm_dealloc_page 쓰자.

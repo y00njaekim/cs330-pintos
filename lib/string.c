@@ -46,6 +46,7 @@ memmove (void *dst_, const void *src_, size_t size) {
    if blocks A and B are equal. */
 int
 memcmp (const void *a_, const void *b_, size_t size) {
+	// printf("size: %d\n", size);
 	const unsigned char *a = a_;
 	const unsigned char *b = b_;
 
@@ -53,8 +54,17 @@ memcmp (const void *a_, const void *b_, size_t size) {
 	ASSERT (b != NULL || size == 0);
 
 	for (; size-- > 0; a++, b++)
-		if (*a != *b)
+		if (*a != *b) {
+			// printf("size: %d\n", size);
+			// printf("달라요 %c %c \n", *a, *b);
+			// printf("달라요 %c %c \n", *(a+1), *(b+1));
+			// printf("달라요 %c %c \n", *(a+2), *(b+2));
+			// printf("달라요 %c %c \n", *(a+3), *(b+3));
+			// printf("달라요 %c %c \n", *(a+4), *(b+4));
+			// printf("달라요 %c %c \n", *(a+5), *(b+5));
+			// printf("달라요 %c %c \n", *(a+6), *(b+6));
 			return *a > *b ? +1 : -1;
+		}
 	return 0;
 }
 
