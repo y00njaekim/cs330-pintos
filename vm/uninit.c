@@ -10,6 +10,7 @@
 
 #include "vm/vm.h"
 #include "vm/uninit.h"
+#include "threads/malloc.h"
 
 static bool uninit_initialize (struct page *page, void *kva);
 static void uninit_destroy (struct page *page);
@@ -65,4 +66,12 @@ uninit_destroy (struct page *page) {
 	struct uninit_page *uninit UNUSED = &page->uninit;
 	/* TODO: Fill this function.
 	 * TODO: If you don't have anything to do, just return. */
+	ASSERT(VM_TYPE(page->operations->type) == VM_UNINIT);
+	// hash_delete(&thread_current()->spt.pages, &page->hash_elem);
+	/* However, modifying hash
+   * table H while hash_clear() is running, using any of the
+   * functions hash_clear(), hash_destroy(), hash_insert(),
+   * hash_replace(), or hash_delete(), yields undefined behavior,
+   * whether done in DESTRUCTOR or elsewhere. */
+	free(page->uninit.aux);
 }
