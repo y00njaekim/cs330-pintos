@@ -29,7 +29,7 @@ void syscall_handler (struct intr_frame *);
 	 의사결정 -> syscall_init */
 static struct semaphore file_sema;
 
-void uaddr_validity_check(uint64_t *uaddr);
+void uaddr_validity_check(uint64_t uaddr);
 struct file *fd_match_file(int fd);
 
 /* System call.
@@ -145,7 +145,7 @@ syscall_handler (struct intr_frame *f) {
 			close(f->R.rdi);
 			break;
 		case SYS_MMAP:			/* Map a file into memory. */
-			mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.rcx, f->R.r8);	// GitBook, Argument Passing, x86-64 calling convention 참고
+			f->R.rax = mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);	// GitBook, Argument Passing, x86-64 calling convention 참고
 			break;
 		case SYS_MUNMAP:		/* Remove a memory mapping. */
 			munmap(f->R.rdi);
@@ -160,11 +160,39 @@ syscall_handler (struct intr_frame *f) {
 
 /* 2-2 user memory access */
 void 
-uaddr_validity_check(uint64_t *uaddr) {
+uaddr_validity_check(uint64_t uaddr) {
 	// project3에서 pml4_get_page의 경우 매칭이 안되면 PF, but bogus fault 인 경우도 있으므로 이 경우 오류로 생각하지 않는다.
 	if ((uaddr == NULL) || is_kernel_vaddr(uaddr)) exit(-1); // || (pml4_get_page(thread_current()->pml4, uaddr) == NULL)) exit(-1);
+	else {
+		struct page *page = spt_find_page(&((*(thread_current())).spt), uaddr);
+		if (page == NULL) {
+			exit(-1);
+		}
+		else {
+			return page;
+		}
+	}
 	// TODO: 추가 사항 있는지 확인해보기
 }
+
+void uaddr_validity_check_multiple(void *addr, size_t size, bool writable) {
+	uaddr_validity_check(addr);
+	struct thread *curr = thread_current();
+	void *page_aligned_addr = pg_round_down(addr);
+	size_t page_size = size < PGSIZE ? size : PGSIZE;
+	if(is_kernel_vaddr(pg_round_down(page_aligned_addr+size))) exit(-1);
+	while(size > 0) {
+		// uaddr_validity_check(page_aligned_addr);
+		struct page *matched_page = spt_find_page(&curr->spt, page_aligned_addr);
+		if((writable && !(matched_page->rw)) || matched_page == NULL) exit(-1);
+		size -= page_size;
+		addr += PGSIZE;
+		page_size = size < PGSIZE ? size : PGSIZE;
+	}
+}
+
+
+
 
 /* halt
  * Terminates Pintos by calling power_off() */
@@ -325,7 +353,8 @@ filesize (int fd) {
 
 int
 read (int fd, void *buffer, unsigned size) {
-	uaddr_validity_check(buffer);
+	// uaddr_validity_check(buffer);
+	uaddr_validity_check_multiple(buffer, size, true);
 
 	int bytes_read;
 
@@ -378,9 +407,9 @@ read (int fd, void *buffer, unsigned size) {
 
 int
 write (int fd, const void *buffer, unsigned size) {
-	uaddr_validity_check((uint64_t) buffer);
+	// uaddr_validity_check((uint64_t) buffer);
+	uaddr_validity_check_multiple(buffer, size, false);
 	int bytes_written = 0;
-	sema_down(&file_sema);
 
 	// (3) fd = 1:	writes on the console using putbuf()
 	if(fd == 1) {
@@ -390,13 +419,14 @@ write (int fd, const void *buffer, unsigned size) {
 		// (2) 해당 fd에 해당하는 file 매치
 		struct file *matched_file = fd_match_file(fd);
 		if(matched_file == NULL) {
-			sema_up(&file_sema);
+			// sema_up(&file_sema);
 			return -1;
 		}
 		// (4) fd != 1:	writes size bytes from buffer to the open file
+	sema_down(&file_sema);
 		bytes_written = file_write(matched_file, buffer, size);
-	}
 	sema_up(&file_sema);
+	}
 	return bytes_written;
 }
 
@@ -462,27 +492,30 @@ close (int fd) {
 
 void *
 mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
-
 	// QUESTION: uaddr_validity_check 바로 써도 되나?
 	// 함수 내의 pml4 항 필요한지 체크해보기
 	// 아니면 do_mmap에서 체크해야하나? -> 여기가 맞는듯
 	// uaddr_validity_check(addr);
 	// 2022.05.18 
 	// CHECK: 아래 NULL cases에서, matched_file 매치하기 전에 확인해야하는 조건 있는지 확인.
+
+	if(is_kernel_vaddr(addr)) return NULL;
 	struct file *matched_file = fd_match_file(fd);
 	// 2. fd가 가리키는 파일이 없으면 
 	if(matched_file == NULL) return NULL;
 
 	/* NULL cases */
 	// 1. fd가 가리키는 파일의 길이가 0이면
-	if(file_length(matched_file) == 0) return NULL;
+	size_t filelength = file_length(matched_file);
+	if (filelength == 0) return NULL;
+	length = filelength < length ? filelength : length;
 	// 3. addr가 not page-aligned면
 	// unsigned long int check_if_page_aligned = addr;
 	// check_if_page_aligned = (check_if_page_aligned << 52) >> 52;
 	// if(check_if_page_aligned != 0) return NULL;
 	// 2022.05.18 이거 이렇게 할 필요 없고 page_aligned 확인하려면 pg_round_down해서 오프셋 0인거 확인하면 될듯? *위 주석 지우지 마시오
 	// if(pg_round_down(addr) != addr) return NULL;
-	if(pg_ofs(addr) == 0) return NULL;
+	if(pg_ofs(addr) != 0) return NULL;
 	// It must fail if the range of pages mapped overlaps any existing set of mapped pages, including the stack or pages mapped at executable load time
 	for (int i = addr; i < addr + length; i+=PGSIZE) {
 		if(spt_find_page(&thread_current()->spt, i))
@@ -494,7 +527,7 @@ mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
 	// 5. length가 0이면
 	if(length <= 0) return NULL;
 	// 6. 잘못된 offset
-	if (offset < 0 || offset > file_length(matched_file)) return NULL;
+	if (offset < 0 || offset > length) return NULL;
 	// if (offset < 0 || offset > PGSIZE) return NULL;
 	// 7. fd값이 STDIN이거나 STDOUT이면 -> 이 경우는 fd_match_file에서 검사
 	// if(fd == 0 || fd == 1) return NULL;
@@ -508,6 +541,9 @@ mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
 
 void
 munmap (void *addr) {
-	uaddr_validity_check(addr);		// 2022.05.18 uaddr_validity_check 확인하기 -> 수정해두었음
-	do_munmap(addr);
+	uaddr_validity_check(addr); // 2022.05.18 uaddr_validity_check 확인하기 -> 수정해두었음
+	struct page *p = spt_find_page(&thread_current()->spt, addr);
+	if(p != NULL && p->file.aux->mmaped_va == addr) {
+		do_munmap(addr);
+	}
 }
