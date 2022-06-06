@@ -35,7 +35,7 @@ vm_anon_init (void) {
 	// 이는 swap_disk의 각 비트에 대응되는 swap_table을 비트맵으로 만듦으로써 해결.
 	// 왜 bitmap? -> bitmap의 각 비트는 t/f로 swap disk의 상태를 대응하여 표현하기에 좋다.
 	// free-map.c의 사용법을 참고.
-	swap_table = bitmap_create((size_t)disk_size(swap_disk));	// QUESTION: swap_disk의 크기는?
+	swap_table = bitmap_create(disk_size(swap_disk));	// QUESTION: swap_disk의 크기는?
 }
 
 /* Initialize the file mapping */
@@ -48,7 +48,7 @@ anon_initializer (struct page *page, enum vm_type type, void *kva) {
 	// page->frmae->va = kva;	
 	// page->rw = true;
 	struct anon_page *anon_page = &page->anon;
-	anon_page->swap_loc = NULL;
+	anon_page->swap_loc = BITMAP_ERROR;
 	return true;
 }
 
@@ -62,7 +62,7 @@ anon_swap_in (struct page *page, void *kva) {
 	 * (3) swap_table에 해당 disk부분 할당 해제된 것으로 표시
 	 */
 	disk_sector_t swapped_location = anon_page->swap_loc;
-	if(swapped_location == NULL) return false;	// (1) swap out된 적이 없습니다! 
+	if(swapped_location == BITMAP_ERROR) return false;	// (1) swap out된 적이 없습니다! 
 
 	disk_sector_t disk_offset;
 	void *buffer;
@@ -76,7 +76,7 @@ anon_swap_in (struct page *page, void *kva) {
 		buffer += DISK_SECTOR_SIZE;
 		iteration--;
 	}
-	bitmap_set_multiple(swap_table, swapped_location, PGSIZE/DISK_SECTOR_SIZE, false);	// (3)
+	bitmap_set_multiple(swap_table, anon_page->swap_loc, PGSIZE/DISK_SECTOR_SIZE, false);	// (3)
 	return true;
 }
 /* 이홍기의 생각 
@@ -133,7 +133,7 @@ anon_swap_out (struct page *page) {
 	/* PUSEDO */
 	// (1) free swap slot 찾고, 없으면 panic the kernel
 	swapped_location = find_free_slot_in_swap_disk();
-	if(swapped_location == BITMAP_ERROR) PANIC("no free swap slot in the swap disk");	// frame과 다르게, disk에서 free 공간 없으면 PANIC (4)
+	if(swapped_location == BITMAP_ERROR) return false; // PANIC("no free swap slot in the swap disk");	// frame과 다르게, disk에서 free 공간 없으면 PANIC (4)
 	// (2) copy the page of data into the slot
 	/* disk_write을 이용해 buffer = memory에서 disk로 데이터를 쓰는건 맞는 것 같음.
 	 * 그런데, disk는 disk_sector 단위로 쓰고, page는 PGSIZE 단위로 쓴다. 이것을 어떻게 sync?
@@ -145,6 +145,7 @@ anon_swap_out (struct page *page) {
 	 * [2] 버퍼에서 디스크로 disk_write 
 	 * [3] 메모리 free (free인지 0으로 초기화하는건지 확인할것)
 	 */
+
 	buffer = page->frame->kva;
 	disk_offset = swapped_location;	// swapped_location이 disk_offset과 같은가? 
 	int iteration = PGSIZE/DISK_SECTOR_SIZE;	// PGSIZE = DISK_SECTOR_SIZE * 8
@@ -165,6 +166,7 @@ anon_swap_out (struct page *page) {
 	pml4_set_dirty(curr->pml4, page->va, false);
 	// (3) 데이터의 위치를 page struct에 저장
 	anon_page->swap_loc = swapped_location;
+    page->frame = NULL;
 	return true;
 }
 
@@ -186,4 +188,9 @@ anon_destroy (struct page *page) {
    * functions hash_clear(), hash_destroy(), hash_insert(),
    * hash_replace(), or hash_delete(), yields undefined behavior,
    * whether done in DESTRUCTOR or elsewhere. */
+    if (page->frame != NULL) {
+        list_remove(&(page->frame->frame_elem));
+        free(page->frame);
+    }
+    if(anon_page -> swap_loc != BITMAP_ERROR) bitmap_set_multiple(swap_table, anon_page->swap_loc, PGSIZE/DISK_SECTOR_SIZE, false);
 }

@@ -162,7 +162,13 @@ syscall_handler (struct intr_frame *f) {
 void 
 uaddr_validity_check(uint64_t uaddr) {
 	// project3에서 pml4_get_page의 경우 매칭이 안되면 PF, but bogus fault 인 경우도 있으므로 이 경우 오류로 생각하지 않는다.
+	struct thread *curr = thread_current();
 	if ((uaddr == NULL) || is_kernel_vaddr(uaddr)) exit(-1); // || (pml4_get_page(thread_current()->pml4, uaddr) == NULL)) exit(-1);
+	else {
+		struct page *page = spt_find_page(&curr->spt, uaddr);
+		if (page == NULL) exit(-1);
+		else return page;
+	}
 	// TODO: 추가 사항 있는지 확인해보기
 }
 
@@ -402,7 +408,6 @@ write (int fd, const void *buffer, unsigned size) {
 	uaddr_validity_check_multiple(buffer, size, false);
 	int bytes_written = 0;
 	sema_down(&file_sema);
-
 	// (3) fd = 1:	writes on the console using putbuf()
 	if(fd == 1) {
 		putbuf(buffer, size); // TODO: sizeof(buffer) < size 인 경우에 putbuf while문에서 무한루프?
