@@ -9,7 +9,8 @@
 
 /* DO NOT MODIFY BELOW LINE */
 static struct disk *swap_disk;
-static struct bitmap *swap_table;	// CHECK: 전역변수로 할당하는 것 옳나? swap_disk와 대응되므로 타당해 보임.
+static struct bitmap *disk_bitmap;
+// static struct bitmap *swap_table;	// CHECK: 전역변수로 할당하는 것 옳나? swap_disk와 대응되므로 타당해 보임.
 static bool anon_swap_in (struct page *page, void *kva);
 static bool anon_swap_out (struct page *page);
 static void anon_destroy (struct page *page);
@@ -103,19 +104,6 @@ anon_swap_in (struct page *page, void *kva) {
  */
 
 
-/* find_free_slot_in_swap_disk
- * swap disk에서 빈 공간을 찾아 page의 데이터를 넣어준다.
- * 이는 swap_table을 통해 관리
- * swap_table bitmap에서 어떻게 PGSIZE의 연속된 빈 공간(marked as false)를 발견할까?
- * -> bitmap.c의 bitmap_scan 이용
- * bitmap_scan: bitmap을 돌면서, 처음으로 CNT개수의 비트가 value로 매핑되어있는 공간을 찾고 starting index 돌려준다.
- */
-static disk_sector_t
-find_free_slot_in_swap_disk() {
-	// swap_table에서 빈 공간으로 마킹되어 있는 PGSIZE 길이의 공간을 찾고, true(할당됨)로 바꾼다.
-	disk_sector_t idx = bitmap_scan_and_flip(swap_table, 0, PGSIZE/DISK_SECTOR_SIZE, false);
-	return idx;
-}
 /* Swap out the page by writing contents to the swap disk. */
 static bool
 anon_swap_out (struct page *page) {
@@ -168,7 +156,7 @@ anon_swap_out (struct page *page) {
 	anon_page->swap_loc = swapped_location;
     page->frame = NULL;
 	return true;
-}
+
 
 /* palloc_free_page에 대한 고찰
  * palloc_free_page는 pool로부터 page(virtual, or physical)를 가져올 때 그 링크를 끊어주는 것이고,

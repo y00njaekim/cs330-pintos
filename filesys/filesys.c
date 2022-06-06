@@ -25,6 +25,7 @@ static void do_format (void);
 
 static struct semaphore filesys_sema;
 
+
 /* Initializes the file system module.
  * If FORMAT is true, reformats the file system. */
 void
@@ -35,6 +36,8 @@ filesys_init (bool format) {
 
 	sema_init(&filesys_sema, 1);
 	inode_init ();
+
+	sema_init(&fileSysLock, 1);
 
 #ifdef EFILESYS
 	fat_init ();
@@ -73,6 +76,7 @@ filesys_done (void) {
 bool
 filesys_create (const char *name, off_t initial_size) {
 	sema_down(&filesys_sema);
+
 	disk_sector_t inode_sector = 0;
 	struct dir *dir = dir_open_root ();
 	bool success = (dir != NULL

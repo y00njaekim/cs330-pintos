@@ -140,6 +140,7 @@ vm_get_victim (void) {
             // printf("accessed가 true입니다.\n");
             pml4_set_accessed(thread_current()->pml4, list_entry(e, struct frame, frame_elem)->page->va, false);
             next_elem = list_next(e); list_remove(e); list_push_back(&frame_list, e); e = next_elem;
+
             continue;
         }
         if (victim == NULL) {
@@ -351,6 +352,7 @@ vm_claim_page (void *va UNUSED) {
 /* Claim the PAGE and set up the mmu. */
 static bool
 vm_do_claim_page (struct page *page) {
+
 
 	struct frame *frame = vm_get_frame ();
 

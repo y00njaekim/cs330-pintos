@@ -63,6 +63,7 @@ file_backed_swap_out (struct page *page) {
 		// file_seek(file_page->file, file_page->aux->ofs);
 		// printf("ofs: %d\n", file_page->aux->ofs);
 		file_write_at(file_page->file, page->va, file_page->aux->page_read_bytes, file_page->aux->ofs); // PGSIZE 맞나? 만약 페이지 내에 일부분만 쓰는거라면? page_read_bytes?
+
 		pml4_set_dirty(curr->pml4, page->va, false);
 	}
 	pml4_clear_page(curr->pml4, page->va);
