@@ -183,12 +183,14 @@ fat_create_chain (cluster_t clst) {
 		ASSERT(fat_get(nclst) == 0)
 		fat_put(nclst, EOChain);
 	} else {
+		cluster_t pclst = clst;
 		cluster_t tclst = fat_get(clst);
 		while(tclst != EOChain) {
 			ASSERT(tclst != 0);
+			pclst = tclst;
 			tclst = fat_get(tclst);
 		}
-		fat_put(tclst, nclst);
+		fat_put(pclst, nclst);
 		fat_put(nclst, EOChain);
 	}
 

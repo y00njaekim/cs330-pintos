@@ -17,6 +17,7 @@
 #include "lib/user/syscall.h"
 #include <string.h>
 #include "userprog/process.h"
+#include "filesys/fat.h"
 
 /* The disk that contains the file system. */
 struct disk *filesys_disk;
@@ -66,6 +67,7 @@ filesys_done (void) {
 #endif
 }
 
+#ifndef EFILESYS
 /* Creates a file named NAME with the given INITIAL_SIZE.
  * Returns true if successful, false otherwise.
  * Fails if a file named NAME already exists,
@@ -86,6 +88,34 @@ filesys_create (const char *name, off_t initial_size) {
 	sema_up(&filesys_sema);
 	return success;
 }
+#else
+/* Creates a file named NAME with the given INITIAL_SIZE.
+ * Returns true if successful, false otherwise.
+ * Fails if a file named NAME already exists,
+ * or if internal memory allocation fails. */
+bool
+filesys_create (const char *name, off_t initial_size) {
+	sema_down(&filesys_sema);
+	disk_sector_t inode_sector = 0;
+	struct dir *dir = dir_open_root ();
+
+	bool fat_allocate = true;
+	cluster_t nclst = fat_create_chain(0);
+	if(nclst == 0) fat_allocate = false;
+	inode_sector = cluster_to_sector(nclst);
+
+	bool success = (dir != NULL
+			&& fat_allocate
+			&& inode_create (inode_sector, initial_size)
+			&& dir_add (dir, name, inode_sector));
+	if (!success && inode_sector != 0)
+		fat_remove_chain(sector_to_cluster(inode_sector), 0);
+	dir_close (dir);
+
+	sema_up(&filesys_sema);
+	return success;
+}
+#endif /* EFILESYS */
 
 /* Opens the file with the given NAME.
  * Returns the new file if successful or a null pointer

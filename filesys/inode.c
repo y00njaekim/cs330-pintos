@@ -59,11 +59,10 @@ static disk_sector_t
 byte_to_sector (const struct inode *inode, off_t pos) {
 	ASSERT (inode != NULL);
 	if (pos < inode->data.length) {
-		size_t sectors = bytes_to_sectors (pos); // 몇 개의 sector 에 걸쳐 데이터가 저장되어 있는지 나타내는 변수
-		disk_sector_t sct = inode->data.start;
-		cluster_t cclst = sector_to_cluster(sct);
+		size_t sectors = pos / DISK_SECTOR_SIZE; // 몇 개의 sector 에 걸쳐 데이터가 저장되어 있는지 나타내는 변수
+		cluster_t cclst = sector_to_cluster(inode->data.start);
 		int i;
-		for(i = 0; i<sectors-1; i++) {
+		for(i = 0; i<sectors; i++) {
 			ASSERT(cclst != 0);
 			ASSERT(cclst != EOChain);
 			cclst = fat_get(cclst);
