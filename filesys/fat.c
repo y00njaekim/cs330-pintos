@@ -239,5 +239,12 @@ cluster_to_sector (cluster_t clst) {
 	// 일단 클러스터 번호가 필요, fat_get(clst) -> 잘못 이해. 클러스터 번호는 clst.
 	// | FAT area | DATA area|
 	//        data_start
-	return fat_fs->data_start + clst;
+	return (disk_sector_t)(fat_fs->data_start + clst);
+}
+
+/* Covert a sector # to a cluster number. */
+cluster_t
+sector_to_cluster (disk_sector_t sct) {
+	/* TODO: Your code goes here. */
+	return (cluster_t)(sct - fat_fs->data_start);
 }
