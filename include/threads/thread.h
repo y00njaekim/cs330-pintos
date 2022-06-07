@@ -131,6 +131,9 @@ struct thread {
 	uintptr_t stack_ceiling;							/* reference process.c:881 */
 	uintptr_t user_rsp;											/* reference interupt_frame member */
 #endif
+#ifdef EFILESYS
+	struct dir *wdir;
+#endif
 
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */

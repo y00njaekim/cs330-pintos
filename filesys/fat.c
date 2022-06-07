@@ -175,7 +175,7 @@ fat_create_chain (cluster_t clst) {
 	/* TODO: Your code goes here. */
 	cluster_t nclst;
 	for (nclst = ROOT_DIR_CLUSTER+1; nclst < fat_fs->fat_length; nclst++) {
-		if(fat_fs->fat[nclst] == 0) break;
+		if(fat_get(nclst) == 0) break;
 	}
 	if(nclst == fat_fs->fat_length) return 0;
 

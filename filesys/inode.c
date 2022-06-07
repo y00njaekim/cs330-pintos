@@ -17,7 +17,8 @@ struct inode_disk {
 	disk_sector_t start;                /* First data sector. */
 	off_t length;                       /* File size in bytes. */
 	unsigned magic;                     /* Magic number. */
-	uint32_t unused[125];               /* Not used. */
+	bool is_dir;
+	uint32_t unused[124];               /* Not used. */
 };
 
 /* Returns the number of sectors to allocate for an inode SIZE
@@ -153,16 +154,19 @@ inode_create (disk_sector_t sector, off_t length) {
 		disk_inode->length = length;
 		disk_inode->magic = INODE_MAGIC;
 
-		cluster_t nclst = fat_create_chain(0);
-		if(nclst == 0) return false;
-		disk_inode->start = cluster_to_sector(nclst);
-		for (int i = 0; i < sectors-1; i++) {
-			nclst = fat_create_chain(nclst);
-			if(nclst == 0) {
-				fat_remove_chain(sector_to_cluster(disk_inode->start), 0);
-				return false; // Returns false if memory or disk allocation fails.
+		if(sectors > 0) {
+			cluster_t nclst = fat_create_chain(0);
+			if(nclst == 0) return false;
+			disk_inode->start = cluster_to_sector(nclst);
+			for (int i = 0; i < sectors-1; i++) {
+				nclst = fat_create_chain(nclst);
+				if(nclst == 0) {
+					fat_remove_chain(sector_to_cluster(disk_inode->start), 0);
+					return false; // Returns false if memory or disk allocation fails.
+				}
 			}
 		}
+
 		disk_write(filesys_disk, sector, disk_inode);
 		if (sectors > 0) {
 			static char zeros[DISK_SECTOR_SIZE];
@@ -472,4 +476,9 @@ inode_allow_write (struct inode *inode) {
 off_t
 inode_length (const struct inode *inode) {
 	return inode->data.length;
+}
+
+bool
+inode_check_dir (struct inode *inode) {
+	return inode->data.is_dir;
 }

@@ -17,6 +17,8 @@
 #include "devices/input.h"
 #include "vm/vm.h"
 #include "vm/file.h"
+#include "filesys/inode.h"
+#include "filesys/directory.h"
 
 /* TODO : `putbuf() 는 lib/kernel/stdio.h 에 존재
 	        <stdio.h> 에서 #include_next 로 lib/kernel/stdio.h 수행
@@ -149,6 +151,12 @@ syscall_handler (struct intr_frame *f) {
 			break;
 		case SYS_MUNMAP:		/* Remove a memory mapping. */
 			munmap(f->R.rdi);
+			break;
+		case SYS_CHDIR:
+			f->R.rax = chdir((const char *)f->R.rdi);
+			break;
+		case SYS_ISDIR:
+			f->R.rax = isdir(f->R.rdi);
 			break;
 		default:
 			exit(-1);
@@ -542,4 +550,50 @@ munmap (void *addr) {
 	if(p != NULL && p->file.aux->mmaped_va == addr) {
 		do_munmap(addr);
 	}
+}
+
+bool
+chdir (const char *dir) {
+	struct thread *curr = thread_current();
+	char *dir_copy;
+	dir_copy = palloc_get_page (0);
+	if (dir_copy == NULL) return false;
+	strlcpy(dir_copy, dir, PGSIZE);
+	// 복사 과정 reference: process_create_initd (process.c)
+
+	struct dir *ndir;
+	if (dir_copy[0] == '/') {
+		ndir = dir_open_root();
+	} else {
+		ndir = dir_reopen(curr->wdir);
+	}
+	struct inode *ninode;
+
+	char *token;
+	char *save_ptr;
+	token = strtok_r(dir_copy, "/", &save_ptr);
+	while (token != NULL) {
+		if(!dir_lookup(ndir, token, &ninode)) {
+			dir_close(ndir);
+			return false;
+		} else if(!inode_check_dir(ninode)) {
+			dir_close(ndir);
+			return false;
+		}
+		dir_close(ndir);
+		ndir = dir_open(ninode);
+		token = strtok_r(NULL, "/", &save_ptr);
+	}
+	// Tokenize reference: load (process.c)
+	
+	dir_close(curr->wdir);
+	curr->wdir = ndir;
+	palloc_free_page(dir_copy);
+	return true;
+}
+
+bool isdir(int fd) {
+	struct file *matched_file = fd_match_file(fd);
+	ASSERT(matched_file != NULL);
+	return inode_check_dir(file_get_inode(matched_file));
 }
