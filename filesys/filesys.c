@@ -97,25 +97,145 @@ bool
 filesys_create (const char *name, off_t initial_size) {
 	sema_down(&filesys_sema);
 	disk_sector_t inode_sector = 0;
-	struct dir *dir = dir_open_root ();
 
 	bool fat_allocate = true;
 	cluster_t nclst = fat_create_chain(0);
 	if(nclst == 0) fat_allocate = false;
 	inode_sector = cluster_to_sector(nclst);
 
-	bool success = (dir != NULL
-			&& fat_allocate
-			&& inode_create (inode_sector, initial_size)
-			&& dir_add (dir, name, inode_sector));
-	if (!success && inode_sector != 0)
-		fat_remove_chain(sector_to_cluster(inode_sector), 0);
+	struct thread *curr = thread_current();
+	char *dir_copy;
+	dir_copy = palloc_get_page (0);
+	if (dir_copy == NULL) return false;
+	strlcpy(dir_copy, name, PGSIZE);
+	// 복사 과정 reference: process_create_initd (process.c)
 
+	struct dir *cdir;
+	if (dir_copy[0] == '/') {
+		cdir = dir_open_root();
+	} else {
+		if(curr->wdir != NULL) cdir = dir_reopen(curr->wdir);
+		else cdir = dir_open_root();
+	}
+	struct inode *cinode;
+
+	char *ctoken;
+	char *ntoken;
+	char *save_ptr;
+	ctoken = strtok_r(dir_copy, "/", &save_ptr);
+	ntoken = strtok_r(NULL, "/", &save_ptr);
+	while (ctoken != NULL && ntoken != NULL) {
+		if(!dir_lookup(cdir, ctoken, &cinode)) {
+			dir_close(cdir);
+			palloc_free_page(dir_copy);
+			sema_up(&filesys_sema);
+			if(inode_sector != 0) fat_remove_chain(sector_to_cluster(inode_sector), 0);
+			return false;
+		} else if(strcmp(ctoken, ".") != 0 && strcmp(ctoken, "..") != 0 && !inode_check_dir(cinode)) {
+			dir_close(cdir);
+			palloc_free_page(dir_copy);
+			sema_up(&filesys_sema);
+			if(inode_sector != 0) fat_remove_chain(sector_to_cluster(inode_sector), 0);
+			return false;
+		}
+		dir_close(cdir);
+		cdir = dir_open(cinode);
+
+		ctoken = ntoken;
+		ntoken = strtok_r(NULL, "/", &save_ptr);
+	}
+
+	bool success = (cdir != NULL
+			&& fat_allocate
+			&& inode_create (inode_sector, initial_size, false)
+			&& dir_add (cdir, ctoken, inode_sector));
+
+	if (!success && inode_sector != 0) fat_remove_chain(sector_to_cluster(inode_sector), 0);
+	palloc_free_page(dir_copy);
+	sema_up(&filesys_sema);
+	return success;
+}
+
+/* Creates a dir named NAME.
+ * Returns true if successful, false otherwise.
+ * Fails if a file named NAME already exists,
+ * or if internal memory allocation fails. */
+bool
+filesys_dir_create (const char *name) {
+	sema_down(&filesys_sema);
+	disk_sector_t inode_sector = 0;
+
+	bool fat_allocate = true;
+	cluster_t nclst = fat_create_chain(0);
+	if(nclst == 0) fat_allocate = false;
+	inode_sector = cluster_to_sector(nclst);
+
+	struct thread *curr = thread_current();
+	char *dir_copy;
+	dir_copy = palloc_get_page (0);
+	if (dir_copy == NULL) return false;
+	strlcpy(dir_copy, name, PGSIZE);
+	// 복사 과정 reference: process_create_initd (process.c)
+
+	struct dir *cdir;
+	if (dir_copy[0] == '/') {
+		cdir = dir_open_root();
+	} else {
+		if(curr->wdir != NULL) cdir = dir_reopen(curr->wdir);
+		else cdir = dir_open_root();
+	}
+	struct inode *cinode;
+
+	char *ctoken;
+	char *ntoken;
+	char *save_ptr;
+	ctoken = strtok_r(dir_copy, "/", &save_ptr);
+	ntoken = strtok_r(NULL, "/", &save_ptr);
+	while (ctoken != NULL && ntoken != NULL) {
+		if(!dir_lookup(cdir, ctoken, &cinode)) {
+			dir_close(cdir);
+			if(inode_sector != 0) fat_remove_chain(sector_to_cluster(inode_sector), 0);
+			palloc_free_page(dir_copy);
+			sema_up(&filesys_sema);
+			return false;
+		} else if(strcmp(ctoken, ".") != 0 && strcmp(ctoken, "..") != 0 && !inode_check_dir(cinode)) {
+			dir_close(cdir);
+			if(inode_sector != 0) fat_remove_chain(sector_to_cluster(inode_sector), 0);
+			palloc_free_page(dir_copy);
+			sema_up(&filesys_sema);
+			return false;
+		}
+		dir_close(cdir);
+		cdir = dir_open(cinode);
+
+		ctoken = ntoken;
+		ntoken = strtok_r(NULL, "/", &save_ptr);
+	}
+	// 여기서 cdir 위에 ctoken 이름의 dir 만들면 됨
+
+	struct inode *inode_itself;
+	struct dir *dir_itself = NULL;
+
+	bool success =
+			(cdir != NULL
+			&& fat_allocate
+			&& dir_create(inode_sector, 16)
+			&& dir_add(cdir, ctoken, inode_sector)
+			&& dir_lookup(cdir, ctoken, &inode_itself)
+			&& dir_add(dir_itself = dir_open(inode_itself), ".", inode_sector)
+			&& dir_add(dir_itself, "..", inode_get_inumber(dir_get_inode(cdir))));
+
+	dir_close(dir_itself);
+	dir_close(cdir);
+
+	if (!success && inode_sector != 0) fat_remove_chain(sector_to_cluster(inode_sector), 0);
+	palloc_free_page(dir_copy);
 	sema_up(&filesys_sema);
 	return success;
 }
 #endif /* EFILESYS */
 
+#ifndef EFILESYS
 /* Opens the file with the given NAME.
  * Returns the new file if successful or a null pointer
  * otherwise.
@@ -136,7 +256,70 @@ filesys_open (const char *name) {
 	sema_up(&filesys_sema);
 	return  file; //file_open(inode);
 }
+#else
+/* Opens the file with the given NAME.
+ * Returns the new file if successful or a null pointer
+ * otherwise.
+ * Fails if no file named NAME exists,
+ * or if an internal memory allocation fails. */
+struct file *
+filesys_open (const char *name) {
+	sema_down(&filesys_sema);
 
+	struct thread *curr = thread_current();
+	char *dir_copy;
+	dir_copy = palloc_get_page (0);
+	if (dir_copy == NULL) return false;
+	strlcpy(dir_copy, name, PGSIZE);
+	// 복사 과정 reference: process_create_initd (process.c)
+
+	struct dir *cdir;
+	if (dir_copy[0] == '/') {
+		cdir = dir_open_root();
+	} else {
+		if(curr->wdir != NULL) cdir = dir_reopen(curr->wdir);
+		else cdir = dir_open_root();
+	}
+	struct inode *cinode;
+
+	char *ctoken;
+	char *ntoken;
+	char *save_ptr;
+	ctoken = strtok_r(dir_copy, "/", &save_ptr);
+	ntoken = strtok_r(NULL, "/", &save_ptr);
+	while (ctoken != NULL && ntoken != NULL) {
+		if(!dir_lookup(cdir, ctoken, &cinode)) {
+			dir_close(cdir);
+			return false;
+		} else if(strcmp(ctoken, ".") != 0 && strcmp(ctoken, "..") != 0 && !inode_check_dir(cinode)) {
+			dir_close(cdir);
+			palloc_free_page(dir_copy);
+			sema_up(&filesys_sema);
+			return NULL;
+		}
+		dir_close(cdir);
+		cdir = dir_open(cinode);
+
+		ctoken = ntoken;
+		ntoken = strtok_r(NULL, "/", &save_ptr);
+	}
+	if(ctoken == NULL) ctoken = ".";
+	// 여기서 cdir 위에 ctoken 이름의 dir 만들면 됨
+
+	struct inode *inode = NULL;
+
+	if (cdir != NULL)
+		dir_lookup (cdir, ctoken, &inode);
+	dir_close (cdir);
+
+	palloc_free_page(dir_copy);
+	struct file *file = file_open(inode);
+	sema_up(&filesys_sema);
+	return file;
+}
+#endif
+
+#ifndef EFILESYS
 /* Deletes the file named NAME.
  * Returns true if successful, false on failure.
  * Fails if no file named NAME exists,
@@ -152,6 +335,61 @@ filesys_remove (const char *name) {
 	sema_up(&filesys_sema);
 	return success;
 }
+#else
+/* Deletes the file named NAME.
+ * Returns true if successful, false on failure.
+ * Fails if no file named NAME exists,
+ * or if an internal memory allocation fails. */
+bool
+filesys_remove (const char *name) {
+	sema_down(&filesys_sema);
+	struct thread *curr = thread_current();
+	char *dir_copy;
+	dir_copy = palloc_get_page (0);
+	if (dir_copy == NULL) return false;
+	strlcpy(dir_copy, name, PGSIZE);
+	// 복사 과정 reference: process_create_initd (process.c)
+
+	struct dir *cdir;
+	if (dir_copy[0] == '/') {
+		cdir = dir_open_root();
+	} else {
+		if(curr->wdir != NULL) cdir = dir_reopen(curr->wdir);
+		else cdir = dir_open_root();
+	}
+	struct inode *cinode;
+
+	char *ctoken;
+	char *ntoken;
+	char *save_ptr;
+	ctoken = strtok_r(dir_copy, "/", &save_ptr);
+	ntoken = strtok_r(NULL, "/", &save_ptr);
+	while (ctoken != NULL && ntoken != NULL) {
+		if(!dir_lookup(cdir, ctoken, &cinode)) {
+			dir_close(cdir);
+			palloc_free_page(dir_copy);
+			sema_up(&filesys_sema);
+			return false;
+		} else if(strcmp(ctoken, ".") != 0 && strcmp(ctoken, "..") != 0 && !inode_check_dir(cinode)) {
+			dir_close(cdir);
+			palloc_free_page(dir_copy);
+			sema_up(&filesys_sema);
+			return false;
+		}
+		dir_close(cdir);
+		cdir = dir_open(cinode);
+
+		ctoken = ntoken;
+		ntoken = strtok_r(NULL, "/", &save_ptr);
+	}
+
+	bool success = cdir != NULL && dir_remove(cdir, ctoken);
+	dir_close (cdir);
+	palloc_free_page(dir_copy);
+	sema_up(&filesys_sema);
+	return success;
+}
+#endif
 
 /* Formats the file system. */
 static void
@@ -161,6 +399,13 @@ do_format (void) {
 #ifdef EFILESYS
 	/* Create FAT and save it to the disk. */
 	fat_create ();
+	if (!dir_create(ROOT_DIR_SECTOR, 16)) {
+			PANIC("root directory creation failed");
+	}
+	struct dir* rdir = dir_open_root();
+	dir_add(rdir, ".", ROOT_DIR_SECTOR);
+	dir_add(rdir, "..", ROOT_DIR_SECTOR);
+	dir_close(rdir);
 	fat_close ();
 #else
 	free_map_create ();

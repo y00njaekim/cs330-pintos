@@ -6,6 +6,8 @@
 #include "filesys/inode.h"
 #include "threads/malloc.h"
 #include "filesys/fat.h"
+#include "threads/thread.h"
+#include "devices/disk.h"
 
 /* A directory. */
 struct dir {
@@ -20,12 +22,21 @@ struct dir_entry {
 	bool in_use;                        /* In use or free? */
 };
 
+#ifndef EFILESYS
 /* Creates a directory with space for ENTRY_CNT entries in the
  * given SECTOR.  Returns true if successful, false on failure. */
 bool
 dir_create (disk_sector_t sector, size_t entry_cnt) {
 	return inode_create (sector, entry_cnt * sizeof (struct dir_entry));
 }
+#else
+/* Creates a directory with space for ENTRY_CNT entries in the
+ * given SECTOR.  Returns true if successful, false on failure. */
+bool
+dir_create (disk_sector_t sector, size_t entry_cnt) {
+	return inode_create (sector, entry_cnt * sizeof (struct dir_entry), true);
+}
+#endif /* EFILESYS */
 
 /* Opens and returns the directory for the given INODE, of which
  * it takes ownership.  Returns a null pointer on failure. */
@@ -74,6 +85,14 @@ dir_close (struct dir *dir) {
 struct inode *
 dir_get_inode (struct dir *dir) {
 	return dir->inode;
+}
+
+/* Sets the current position in DIR to NEW_POS bytes from the
+ * start of the file. */
+void
+dir_skip_dot(struct dir *dir) {
+	ASSERT (dir != NULL);
+	if(dir->pos == 0) dir->pos = 2 * sizeof(struct dir_entry);
 }
 
 /* Searches DIR for a file with the given NAME.
@@ -181,13 +200,15 @@ dir_remove (struct dir *dir, const char *name) {
 	ASSERT (name != NULL);
 
 	/* Find directory entry. */
-	if (!lookup (dir, name, &e, &ofs))
+	if (!lookup (dir, name, &e, &ofs)) {
 		goto done;
-
+	}
 	/* Open inode. */
 	inode = inode_open (e.inode_sector);
 	if (inode == NULL)
 		goto done;
+	// if(inode == dir_get_inode(thread_current()->wdir))
+	// 	goto done;
 
 	/* Erase directory entry. */
 	e.in_use = false;

@@ -155,8 +155,17 @@ syscall_handler (struct intr_frame *f) {
 		case SYS_CHDIR:
 			f->R.rax = chdir((const char *)f->R.rdi);
 			break;
+		case SYS_MKDIR:
+			f->R.rax = mkdir((const char *)f->R.rdi);
+			break;
+		case SYS_READDIR:
+			f->R.rax = readdir(f->R.rdi, (char *)f->R.rsi);
+			break;
 		case SYS_ISDIR:
 			f->R.rax = isdir(f->R.rdi);
+			break;
+		case SYS_INUMBER:
+			f->R.rax = inumber(f->R.rdi);
 			break;
 		default:
 			exit(-1);
@@ -196,8 +205,10 @@ void uaddr_validity_check_multiple(void *addr, size_t size, bool writable) {
 	}
 }
 
-
-
+void
+file_empty_check(const char *file) {
+	if(strcmp(file, "") == 0) exit(-1);
+}
 
 /* halt
  * Terminates Pintos by calling power_off() */
@@ -238,7 +249,7 @@ int
 exec(const char *cmd_line) {
 	// ASSERT(cmd_line != NULL);
 	uaddr_validity_check((uint64_t) cmd_line);
-	// TODO: cmd_line 그대로 사용하나? 
+	// TODO: cmd_line 그대로 사용하나?
 	// process_create_initd()에서 caller와 load 사이 race 방지 위해 복사. 여기서도 같은 방법?
 	char *cmd_copy = palloc_get_page(0); // 복사할곳=palloc_get_page(PAL_ZERO);
 	if (cmd_copy == NULL) exit(-1);		// if(복사할곳 == NULL) exit(-1);
@@ -278,6 +289,7 @@ bool
 create (const char *file, unsigned initial_size) {
 	// ASSERT(file != NULL);
 	uaddr_validity_check((uint64_t) file);
+	if(strcmp(file, "") == 0) exit(-1);
 	// Yoonjae's Question : filesys 할 때 항상 락을 걸어야 한다면 이 경우에도 필요 하지 않나?
 	return filesys_create(file, initial_size); 
 }
@@ -305,6 +317,7 @@ int
 open (const char *file) {
 	// ASSERT(file != NULL);
 	uaddr_validity_check((uint64_t) file);
+	if(strcmp(file, "") == 0) return -1;
 	// (1) file 오픈 - filesys.c의 filesys_open(const char *name)
 	sema_down(&file_sema);
 	struct file *open_file = filesys_open(file);
@@ -424,6 +437,9 @@ write (int fd, const void *buffer, unsigned size) {
 		// (2) 해당 fd에 해당하는 file 매치
 		struct file *matched_file = fd_match_file(fd);
 		if(matched_file == NULL) {
+			sema_up(&file_sema);
+			return -1;
+		} else if(isdir(fd)) {
 			sema_up(&file_sema);
 			return -1;
 		}
@@ -554,6 +570,7 @@ munmap (void *addr) {
 
 bool
 chdir (const char *dir) {
+	if(strcmp(dir, "") == 0) return false;
 	struct thread *curr = thread_current();
 	char *dir_copy;
 	dir_copy = palloc_get_page (0);
@@ -565,7 +582,8 @@ chdir (const char *dir) {
 	if (dir_copy[0] == '/') {
 		ndir = dir_open_root();
 	} else {
-		ndir = dir_reopen(curr->wdir);
+		if(curr->wdir != NULL) ndir = dir_reopen(curr->wdir);
+		else ndir = dir_open_root();
 	}
 	struct inode *ninode;
 
@@ -592,8 +610,37 @@ chdir (const char *dir) {
 	return true;
 }
 
-bool isdir(int fd) {
+bool
+mkdir (const char *dir) {
+	if(strcmp(dir, "") == 0) return false;
+	return filesys_dir_create(dir);
+}
+
+bool
+readdir (int fd, char name[READDIR_MAX_LEN + 1]) {
+	struct file *matched_file = fd_match_file(fd);
+	if(matched_file == NULL) return false;
+	if (!inode_check_dir(file_get_inode(matched_file))) return false;
+	struct dir *dir = (struct dir *)matched_file;
+	dir_skip_dot(dir);
+	return dir_readdir(dir, name);
+}
+
+bool
+isdir(int fd) {
 	struct file *matched_file = fd_match_file(fd);
 	ASSERT(matched_file != NULL);
 	return inode_check_dir(file_get_inode(matched_file));
 }
+
+int
+inumber (int fd) {
+	struct file *matched_file = fd_match_file(fd);
+	ASSERT(matched_file != NULL);
+	return inode_get_inumber(file_get_inode(matched_file));
+}
+
+// int
+// symlink (const char* target, const char* linkpath) {
+// 	return syscall2 (SYS_SYMLINK, target, linkpath);
+// }

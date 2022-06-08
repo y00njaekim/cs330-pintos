@@ -210,6 +210,13 @@ __do_fork (void *aux) {
 		current->fd_table[fd_step] = file_duplicate(parent->fd_table[fd_step]);
 	}
 	current->fdx = parent->fdx;
+
+	#ifdef EFILESYS
+	if(parent->wdir != NULL) {
+		if(current->wdir != NULL) dir_close(current->wdir);
+		current->wdir = dir_reopen(parent->wdir);
+	}
+	#endif
 	sema_up(&parent->fork_sema);
 
 	process_init ();
@@ -387,6 +394,9 @@ process_exit (void) {
 	if(curr->loaded_file != NULL) {
 		file_close(curr->loaded_file);
 	}
+	#ifdef EFILESYS
+	dir_close(curr->wdir);
+	#endif
 
 	// QUESTION: sema_up 위치가 여기가 맞나?
 	sema_up(&curr->wait_sema);

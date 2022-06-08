@@ -209,7 +209,7 @@ fat_remove_chain (cluster_t clst, cluster_t pclst) {
 		else fat_put(pclst, EOChain);
 	}
 	while(cclst != EOChain) {
-		ASSERT(cclst != 0);
+		if(cclst == 0) return;
 		rclst = cclst;
 		cclst = fat_get(cclst);
 		fat_put(rclst, 0);

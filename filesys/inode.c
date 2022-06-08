@@ -138,7 +138,7 @@ inode_create (disk_sector_t sector, off_t length) {
  * Returns true if successful.
  * Returns false if memory or disk allocation fails. */
 bool
-inode_create (disk_sector_t sector, off_t length) {
+inode_create (disk_sector_t sector, off_t length, bool is_dir) {
 	struct inode_disk *disk_inode = NULL;
 	bool success = false;
 
@@ -152,6 +152,7 @@ inode_create (disk_sector_t sector, off_t length) {
 	if (disk_inode != NULL) {
 		size_t sectors = bytes_to_sectors (length);
 		disk_inode->length = length;
+		disk_inode->is_dir = is_dir;
 		disk_inode->magic = INODE_MAGIC;
 
 		if(sectors > 0) {
@@ -232,6 +233,7 @@ inode_get_inumber (const struct inode *inode) {
 	return inode->sector;
 }
 
+#ifndef EFILESYS
 /* Closes INODE and writes it to disk.
  * If this was the last reference to INODE, frees its memory.
  * If INODE was also a removed inode, frees its blocks. */
@@ -256,6 +258,31 @@ inode_close (struct inode *inode) {
 		free (inode); 
 	}
 }
+#else
+/* Closes INODE and writes it to disk.
+ * If this was the last reference to INODE, frees its memory.
+ * If INODE was also a removed inode, frees its blocks. */
+void
+inode_close (struct inode *inode) {
+	/* Ignore null pointer. */
+	if (inode == NULL)
+		return;
+
+	/* Release resources if this was the last opener. */
+	if (--inode->open_cnt == 0) {
+		/* Remove from inode list and release lock. */
+		list_remove (&inode->elem);
+
+		/* Deallocate blocks if removed. */
+		if (inode->removed) {
+			fat_remove_chain(inode->sector, 0);
+			fat_remove_chain(inode->data.start, 0);
+		}
+
+		free (inode); 
+	}
+}
+#endif
 
 /* Marks INODE to be deleted when it is closed by the last caller who
  * has it open. */
