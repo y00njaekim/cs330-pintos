@@ -180,11 +180,21 @@ void
 uaddr_validity_check(uint64_t uaddr) {
 	// project3에서 pml4_get_page의 경우 매칭이 안되면 PF, but bogus fault 인 경우도 있으므로 이 경우 오류로 생각하지 않는다.
 	struct thread *curr = thread_current();
-	if ((uaddr == NULL) || is_kernel_vaddr(uaddr)) exit(-1); // || (pml4_get_page(thread_current()->pml4, uaddr) == NULL)) exit(-1);
+	if ((uaddr == NULL) || is_kernel_vaddr(uaddr)) {
+		if(debug_mode) printf("if\n");
+		exit(-1); // || (pml4_get_page(thread_current()->pml4, uaddr) == NULL)) exit(-1);
+	}
 	else {
+		if(debug_mode) printf("else\n");
 		struct page *page = spt_find_page(&curr->spt, uaddr);
-		if (page == NULL) exit(-1);
-		else return page;
+		if (page == NULL) {
+			if(debug_mode) printf("in else if\n");
+			exit(-1);
+		}
+		else {
+			if(debug_mode) printf("in else else\n");
+			return page;
+		}
 	}
 	// TODO: 추가 사항 있는지 확인해보기
 }
@@ -303,8 +313,16 @@ create (const char *file, unsigned initial_size) {
 bool
 remove (const char *file) {
 	// ASSERT(file != NULL);
-	uaddr_validity_check((uint64_t) file);
-	return filesys_remove(file);
+	if(debug_mode) printf("remove1 %s\n", file);
+	uaddr_validity_check((uint64_t)file);
+	// printf("remove1 %s\n", file);
+
+	// Try1:
+	bool res = filesys_remove(file);
+	// printf("remove2 %s\n", file);
+	return res;
+	// Original1:
+	// return filesys_remove(file);
 }
 
 /* open
@@ -604,7 +622,7 @@ chdir (const char *dir) {
 	}
 	// Tokenize reference: load (process.c)
 	
-	dir_close(curr->wdir);
+	if(curr->wdir != NULL) dir_close(curr->wdir);
 	curr->wdir = ndir;
 	palloc_free_page(dir_copy);
 	return true;
@@ -613,6 +631,8 @@ chdir (const char *dir) {
 bool
 mkdir (const char *dir) {
 	if(strcmp(dir, "") == 0) return false;
+	// if(strcmp(dir, "/0/0/0") == 0) printf("@@@@@@@ mkdir /0/0/0\n");
+	// if(strcmp(dir, "0") == 0) printf("@@@@@@@ mkdir 0\n");
 	return filesys_dir_create(dir);
 }
 
@@ -622,7 +642,6 @@ readdir (int fd, char name[READDIR_MAX_LEN + 1]) {
 	if(matched_file == NULL) return false;
 	if (!inode_check_dir(file_get_inode(matched_file))) return false;
 	struct dir *dir = (struct dir *)matched_file;
-	dir_skip_dot(dir);
 	return dir_readdir(dir, name);
 }
 

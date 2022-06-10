@@ -20,6 +20,7 @@ struct dir *dir_open_root (void);
 struct dir *dir_reopen (struct dir *);
 void dir_close (struct dir *);
 struct inode *dir_get_inode (struct dir *);
+struct inode *dir_get_inode_opencnt(struct dir *);
 void dir_skip_dot(struct dir *);
 
 /* Reading and writing. */
@@ -27,5 +28,6 @@ bool dir_lookup (const struct dir *, const char *name, struct inode **);
 bool dir_add (struct dir *, const char *name, disk_sector_t);
 bool dir_remove (struct dir *, const char *name);
 bool dir_readdir (struct dir *, char name[NAME_MAX + 1]);
+bool dir_inode_readdir(struct inode *);
 
 #endif /* filesys/directory.h */

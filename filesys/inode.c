@@ -7,6 +7,7 @@
 #include "filesys/free-map.h"
 #include "threads/malloc.h"
 #include "filesys/fat.h"
+#include "threads/thread.h"
 
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
@@ -191,6 +192,9 @@ inode_create (disk_sector_t sector, off_t length, bool is_dir) {
  * Returns a null pointer if memory allocation fails. */
 struct inode *
 inode_open (disk_sector_t sector) {
+	int a = 1;
+	if(debug_mode) printf("in inode_open %d\n", a);
+	a++;
 	struct list_elem *e;
 	struct inode *inode;
 
@@ -204,10 +208,14 @@ inode_open (disk_sector_t sector) {
 		}
 	}
 
+	if(debug_mode) printf("in inode_open %d\n", a);
+	a++;
 	/* Allocate memory. */
 	inode = malloc (sizeof *inode);
 	if (inode == NULL)
 		return NULL;
+	if(debug_mode) printf("in inode_open %d\n", a);
+	a++;
 
 	/* Initialize. */
 	list_push_front (&open_inodes, &inode->elem);
@@ -215,7 +223,11 @@ inode_open (disk_sector_t sector) {
 	inode->open_cnt = 1;
 	inode->deny_write_cnt = 0;
 	inode->removed = false;
+	if(debug_mode) printf("in inode_open %d\n", a);
+	a++;
 	disk_read (filesys_disk, inode->sector, &inode->data);
+	if(debug_mode) printf("in inode_open %d\n", a);
+	a++;
 	return inode;
 }
 
@@ -511,6 +523,13 @@ inode_check_dir (struct inode *inode) {
 }
 
 bool
-inode_check_open (struct inode *inode) {
-	return inode->open_cnt > 0;
+inode_check_opened (struct inode *inode) {
+	if(debug_mode) printf("in inode_check_open\n");
+	return inode->open_cnt > 1;
+}
+
+int
+get_inode_opencnt (struct inode *inode) {
+	if(debug_mode) printf("in inode_check_open\n");
+	return inode->open_cnt;
 }

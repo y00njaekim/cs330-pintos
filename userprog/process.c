@@ -215,8 +215,11 @@ __do_fork (void *aux) {
 	if(parent->wdir != NULL) {
 		if(current->wdir != NULL) dir_close(current->wdir);
 		current->wdir = dir_reopen(parent->wdir);
+	} else {
+		if(current->wdir != NULL) dir_close(current->wdir);
+		current->wdir = dir_open_root();
 	}
-	#endif
+#endif
 	sema_up(&parent->fork_sema);
 
 	process_init ();
@@ -395,7 +398,7 @@ process_exit (void) {
 		file_close(curr->loaded_file);
 	}
 	#ifdef EFILESYS
-	dir_close(curr->wdir);
+	if(curr->wdir != NULL) dir_close(curr->wdir);
 	#endif
 
 	// QUESTION: sema_up 위치가 여기가 맞나?

@@ -144,12 +144,12 @@ filesys_create (const char *name, off_t initial_size) {
 		ctoken = ntoken;
 		ntoken = strtok_r(NULL, "/", &save_ptr);
 	}
-
 	bool success = (cdir != NULL
 			&& fat_allocate
 			&& inode_create (inode_sector, initial_size, false)
 			&& dir_add (cdir, ctoken, inode_sector));
 
+	dir_close(cdir);
 	if (!success && inode_sector != 0) fat_remove_chain(sector_to_cluster(inode_sector), 0);
 	palloc_free_page(dir_copy);
 	sema_up(&filesys_sema);
@@ -225,10 +225,14 @@ filesys_dir_create (const char *name) {
 			&& dir_add(dir_itself = dir_open(inode_itself), ".", inode_sector)
 			&& dir_add(dir_itself, "..", inode_get_inumber(dir_get_inode(cdir))));
 
-	dir_close(dir_itself);
+	if(dir_itself != NULL) dir_close(dir_itself);
 	dir_close(cdir);
 
 	if (!success && inode_sector != 0) fat_remove_chain(sector_to_cluster(inode_sector), 0);
+	if(strcmp(name, "/0/0/0/0") == 0) {
+		printf("@@@@@@@@@@ /0/0/0/0 disk is %d\n", inode_sector);
+		printf("@@@@@@@@@@ dir_itself's open_cnt is %d\n", dir_get_inode_opencnt(dir_itself));
+	}
 	palloc_free_page(dir_copy);
 	sema_up(&filesys_sema);
 	return success;
@@ -349,7 +353,9 @@ filesys_remove (const char *name) {
 	if (dir_copy == NULL) return false;
 	strlcpy(dir_copy, name, PGSIZE);
 	// 복사 과정 reference: process_create_initd (process.c)
-
+	int a = 1;
+	// printf("in filesys_remove %d\n", a);
+	a++;
 	struct dir *cdir;
 	if (dir_copy[0] == '/') {
 		cdir = dir_open_root();
@@ -357,6 +363,8 @@ filesys_remove (const char *name) {
 		if(curr->wdir != NULL) cdir = dir_reopen(curr->wdir);
 		else cdir = dir_open_root();
 	}
+	// printf("in filesys_remove %d\n", a);
+	a++;
 	struct inode *cinode;
 
 	char *ctoken;
@@ -382,10 +390,23 @@ filesys_remove (const char *name) {
 		ctoken = ntoken;
 		ntoken = strtok_r(NULL, "/", &save_ptr);
 	}
+	// printf("in filesys_remove %d\n", a);
+	// a++;
 
 	bool success = cdir != NULL && dir_remove(cdir, ctoken);
-	dir_close (cdir);
+	dir_close(cdir);
+	// printf("in filesys_remove %d\n", a);
+	// a++;
+	// printf("in filesys_remove %d\n", a);
+	// a++;
 	palloc_free_page(dir_copy);
+	// printf("in filesys_remove %d\n", a);
+	// a++;
+	// if(success) {
+	// 	printf("success\n");
+	// } else {
+	// 	printf("fail\n");
+	// }
 	sema_up(&filesys_sema);
 	return success;
 }
