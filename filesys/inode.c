@@ -509,3 +509,8 @@ bool
 inode_check_dir (struct inode *inode) {
 	return inode->data.is_dir;
 }
+
+bool
+inode_check_open (struct inode *inode) {
+	return inode->open_cnt > 0;
+}

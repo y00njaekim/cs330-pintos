@@ -131,7 +131,7 @@ filesys_create (const char *name, off_t initial_size) {
 			sema_up(&filesys_sema);
 			if(inode_sector != 0) fat_remove_chain(sector_to_cluster(inode_sector), 0);
 			return false;
-		} else if(strcmp(ctoken, ".") != 0 && strcmp(ctoken, "..") != 0 && !inode_check_dir(cinode)) {
+		} else if(!inode_check_dir(cinode)) {
 			dir_close(cdir);
 			palloc_free_page(dir_copy);
 			sema_up(&filesys_sema);
@@ -198,7 +198,7 @@ filesys_dir_create (const char *name) {
 			palloc_free_page(dir_copy);
 			sema_up(&filesys_sema);
 			return false;
-		} else if(strcmp(ctoken, ".") != 0 && strcmp(ctoken, "..") != 0 && !inode_check_dir(cinode)) {
+		} else if(!inode_check_dir(cinode)) {
 			dir_close(cdir);
 			if(inode_sector != 0) fat_remove_chain(sector_to_cluster(inode_sector), 0);
 			palloc_free_page(dir_copy);
@@ -291,7 +291,7 @@ filesys_open (const char *name) {
 		if(!dir_lookup(cdir, ctoken, &cinode)) {
 			dir_close(cdir);
 			return false;
-		} else if(strcmp(ctoken, ".") != 0 && strcmp(ctoken, "..") != 0 && !inode_check_dir(cinode)) {
+		} else if(!inode_check_dir(cinode)) {
 			dir_close(cdir);
 			palloc_free_page(dir_copy);
 			sema_up(&filesys_sema);
@@ -370,7 +370,7 @@ filesys_remove (const char *name) {
 			palloc_free_page(dir_copy);
 			sema_up(&filesys_sema);
 			return false;
-		} else if(strcmp(ctoken, ".") != 0 && strcmp(ctoken, "..") != 0 && !inode_check_dir(cinode)) {
+		} else if(!inode_check_dir(cinode)) {
 			dir_close(cdir);
 			palloc_free_page(dir_copy);
 			sema_up(&filesys_sema);
@@ -399,12 +399,12 @@ do_format (void) {
 #ifdef EFILESYS
 	/* Create FAT and save it to the disk. */
 	fat_create ();
-	if (!dir_create(ROOT_DIR_SECTOR, 16)) {
+	if (!dir_create(cluster_to_sector(ROOT_DIR_CLUSTER), 16)) {
 			PANIC("root directory creation failed");
 	}
 	struct dir* rdir = dir_open_root();
-	dir_add(rdir, ".", ROOT_DIR_SECTOR);
-	dir_add(rdir, "..", ROOT_DIR_SECTOR);
+	dir_add(rdir, ".", cluster_to_sector(ROOT_DIR_CLUSTER));
+	dir_add(rdir, "..", cluster_to_sector(ROOT_DIR_CLUSTER));
 	dir_close(rdir);
 	fat_close ();
 #else
