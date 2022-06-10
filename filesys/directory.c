@@ -197,6 +197,7 @@ dir_remove (struct dir *dir, const char *name) {
 	off_t ofs;
 
 	ASSERT (dir != NULL);
+	if(name == NULL) return false;
 	ASSERT (name != NULL);
 
 	/* Find directory entry. */
@@ -207,7 +208,7 @@ dir_remove (struct dir *dir, const char *name) {
 	inode = inode_open (e.inode_sector);
 	if (inode == NULL)
 		goto done;
-	if(inode_check_open(inode))
+	if(inode == dir_get_inode(thread_current()->wdir) || inode_check_open(inode))
 		goto done;
 
 	/* Erase directory entry. */
