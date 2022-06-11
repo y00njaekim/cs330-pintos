@@ -131,7 +131,9 @@ filesys_create (const char *name, off_t initial_size) {
 			sema_up(&filesys_sema);
 			if(inode_sector != 0) fat_remove_chain(sector_to_cluster(inode_sector), 0);
 			return false;
-		} else if(!inode_check_dir(cinode)) {
+		}
+		if(inode_check_syml(cinode)) cinode = syml_to_inode(cinode);
+		if(!inode_check_dir(cinode)) {
 			dir_close(cdir);
 			palloc_free_page(dir_copy);
 			sema_up(&filesys_sema);
@@ -204,7 +206,9 @@ filesys_dir_create (const char *name) {
 			palloc_free_page(dir_copy);
 			sema_up(&filesys_sema);
 			return false;
-		} else if(!inode_check_dir(cinode)) {
+		}
+		if(inode_check_syml(cinode)) cinode = syml_to_inode(cinode);
+		if(!inode_check_dir(cinode)) {
 			dir_close(cdir);
 			if(inode_sector != 0) fat_remove_chain(sector_to_cluster(inode_sector), 0);
 			palloc_free_page(dir_copy);
@@ -278,7 +282,7 @@ filesys_syml_create (const char* target, const char* linkpath) {
 	ctoken = strtok_r(dir_copy, "/", &save_ptr);
 	ntoken = strtok_r(NULL, "/", &save_ptr);
 	while (ctoken != NULL && ntoken != NULL) {
-		printf("in while\n");
+		// printf("in while\n");
 		if (!dir_lookup(cdir, ctoken, &cinode))
 		{
 			dir_close(cdir);
@@ -391,7 +395,8 @@ filesys_open (const char *name) {
 			dir_close(cdir);
 			return false;
 		}
-		else if (!inode_check_dir(cinode))
+		if(inode_check_syml(cinode)) cinode = syml_to_inode(cinode);
+		if (!inode_check_dir(cinode))
 		{
 			dir_close(cdir);
 			palloc_free_page(dir_copy);
@@ -495,7 +500,9 @@ filesys_remove (const char *name) {
 			palloc_free_page(dir_copy);
 			sema_up(&filesys_sema);
 			return false;
-		} else if(!inode_check_dir(cinode)) {
+		} 
+		if(inode_check_syml(cinode)) cinode = syml_to_inode(cinode);
+		if(!inode_check_dir(cinode)) {
 			dir_close(cdir);
 			palloc_free_page(dir_copy);
 			sema_up(&filesys_sema);
