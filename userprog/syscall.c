@@ -19,6 +19,7 @@
 #include "vm/file.h"
 #include "filesys/inode.h"
 #include "filesys/directory.h"
+#include "filesys/fat.h"
 
 /* TODO : `putbuf() 는 lib/kernel/stdio.h 에 존재
 	        <stdio.h> 에서 #include_next 로 lib/kernel/stdio.h 수행
@@ -166,6 +167,9 @@ syscall_handler (struct intr_frame *f) {
 			break;
 		case SYS_INUMBER:
 			f->R.rax = inumber(f->R.rdi);
+			break;
+		case SYS_SYMLINK:
+			f->R.rax = symlink((const char *)f->R.rdi, (const char *)f->R.rsi);
 			break;
 		default:
 			exit(-1);
@@ -349,6 +353,7 @@ open (const char *file) {
 	// TODO: open이 fail하는 경우의 수가 fd_table이 꽉 찬 경우 밖에 없나?
 
 	curr->fd_table[curr->fdx] = open_file;
+	// printf("open files inode is %p\n", file_get_inode(open_file));
 	return curr->fdx;
 }
 
@@ -642,6 +647,7 @@ readdir (int fd, char name[READDIR_MAX_LEN + 1]) {
 	if(matched_file == NULL) return false;
 	if (!inode_check_dir(file_get_inode(matched_file))) return false;
 	struct dir *dir = (struct dir *)matched_file;
+	dir_skip_dot(dir);
 	return dir_readdir(dir, name);
 }
 
@@ -659,7 +665,10 @@ inumber (int fd) {
 	return inode_get_inumber(file_get_inode(matched_file));
 }
 
-// int
-// symlink (const char* target, const char* linkpath) {
-// 	return syscall2 (SYS_SYMLINK, target, linkpath);
-// }
+int
+symlink (const char* target, const char* linkpath) {
+	if(filesys_syml_create(target, linkpath)) {
+		return 0;
+	}
+	return -1;
+}

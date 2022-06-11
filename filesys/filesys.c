@@ -148,6 +148,12 @@ filesys_create (const char *name, off_t initial_size) {
 			&& fat_allocate
 			&& inode_create (inode_sector, initial_size, false)
 			&& dir_add (cdir, ctoken, inode_sector));
+	
+	// if(success) {
+	// 	printf("in filesys_create: success, ctoken is %s dir inode sector is %p\n", ctoken, inode_get_inumber(dir_get_inode(cdir)));
+	// } else {
+	// 	printf("in filesys_create: fail\n");
+	// }
 
 	dir_close(cdir);
 	if (!success && inode_sector != 0) fat_remove_chain(sector_to_cluster(inode_sector), 0);
@@ -239,6 +245,79 @@ filesys_dir_create (const char *name) {
 }
 #endif /* EFILESYS */
 
+
+bool
+filesys_syml_create (const char* target, const char* linkpath) {
+	sema_down(&filesys_sema);
+	disk_sector_t inode_sector = 0;
+
+	bool fat_allocate = true;
+	cluster_t nclst = fat_create_chain(0);
+	if(nclst == 0) fat_allocate = false;
+	inode_sector = cluster_to_sector(nclst);
+
+	struct thread *curr = thread_current();
+	char *dir_copy;
+	dir_copy = palloc_get_page (0);
+	if (dir_copy == NULL) return false;
+	strlcpy(dir_copy, linkpath, PGSIZE);
+	// 복사 과정 reference: process_create_initd (process.c)
+
+	struct dir *cdir;
+	if (dir_copy[0] == '/') {
+		cdir = dir_open_root();
+	} else {
+		if(curr->wdir != NULL) cdir = dir_reopen(curr->wdir);
+		else cdir = dir_open_root();
+	}
+	struct inode *cinode;
+
+	char *ctoken;
+	char *ntoken;
+	char *save_ptr;
+	ctoken = strtok_r(dir_copy, "/", &save_ptr);
+	ntoken = strtok_r(NULL, "/", &save_ptr);
+	while (ctoken != NULL && ntoken != NULL) {
+		printf("in while\n");
+		if (!dir_lookup(cdir, ctoken, &cinode))
+		{
+			dir_close(cdir);
+			palloc_free_page(dir_copy);
+			sema_up(&filesys_sema);
+			if(inode_sector != 0) fat_remove_chain(sector_to_cluster(inode_sector), 0);
+			return false;
+		}
+		else if (!inode_check_dir(cinode))
+		{
+			dir_close(cdir);
+			palloc_free_page(dir_copy);
+			sema_up(&filesys_sema);
+			if(inode_sector != 0) fat_remove_chain(sector_to_cluster(inode_sector), 0);
+			return false;
+		}
+		dir_close(cdir);
+		cdir = dir_open(cinode);
+
+		ctoken = ntoken;
+		ntoken = strtok_r(NULL, "/", &save_ptr);
+	}
+	bool success = (cdir != NULL
+			&& fat_allocate
+			&& inode_syml_create (inode_sector, target)
+			&& dir_add (cdir, ctoken, inode_sector));
+	// printf("in filesys_syml_create cdir:%s dir inode sector is %p\n", ctoken, inode_get_inumber(dir_get_inode(cdir)));
+	// if(success) {
+	// 	printf("success\n");
+	// } else {
+	// 	printf("fail\n");
+	// }
+	dir_close(cdir);
+	if (!success && inode_sector != 0) fat_remove_chain(sector_to_cluster(inode_sector), 0);
+	palloc_free_page(dir_copy);
+	sema_up(&filesys_sema);
+	return success;
+}
+
 #ifndef EFILESYS
 /* Opens the file with the given NAME.
  * Returns the new file if successful or a null pointer
@@ -268,6 +347,9 @@ filesys_open (const char *name) {
  * or if an internal memory allocation fails. */
 struct file *
 filesys_open (const char *name) {
+	int a = 1;
+	// printf("in filesys_open %d\n", a);
+	a++;
 	sema_down(&filesys_sema);
 
 	struct thread *curr = thread_current();
@@ -279,11 +361,22 @@ filesys_open (const char *name) {
 
 	struct dir *cdir;
 	if (dir_copy[0] == '/') {
+		// printf("@@ if\n");
 		cdir = dir_open_root();
 	} else {
-		if(curr->wdir != NULL) cdir = dir_reopen(curr->wdir);
-		else cdir = dir_open_root();
+		// printf("@@ else\n");
+		if(curr->wdir != NULL) {
+			cdir = dir_reopen(curr->wdir);
+			// printf("@@ else if\n");
+		}
+		else {
+			cdir = dir_open_root();
+			// printf("@@ else else\n");
+			// printf("in filesys_open, root inode sector1 is %p\n", inode_get_inumber(dir_get_inode(cdir)));
+		}
 	}
+	// printf("in filesys_open %d\n", a);
+	// a++;
 	struct inode *cinode;
 
 	char *ctoken;
@@ -292,10 +385,14 @@ filesys_open (const char *name) {
 	ctoken = strtok_r(dir_copy, "/", &save_ptr);
 	ntoken = strtok_r(NULL, "/", &save_ptr);
 	while (ctoken != NULL && ntoken != NULL) {
-		if(!dir_lookup(cdir, ctoken, &cinode)) {
+		// printf("in filesys_open in while\n");
+		if (!dir_lookup(cdir, ctoken, &cinode))
+		{
 			dir_close(cdir);
 			return false;
-		} else if(!inode_check_dir(cinode)) {
+		}
+		else if (!inode_check_dir(cinode))
+		{
 			dir_close(cdir);
 			palloc_free_page(dir_copy);
 			sema_up(&filesys_sema);
@@ -307,16 +404,36 @@ filesys_open (const char *name) {
 		ctoken = ntoken;
 		ntoken = strtok_r(NULL, "/", &save_ptr);
 	}
+	// printf("in filesys_open, root inode sector2 is %p\n", inode_get_inumber(dir_get_inode(cdir)));
 	if(ctoken == NULL) ctoken = ".";
 	// 여기서 cdir 위에 ctoken 이름의 dir 만들면 됨
+	// printf("in filesys_open %d\n", a);
+	// a++;
 
 	struct inode *inode = NULL;
 
 	if (cdir != NULL)
 		dir_lookup (cdir, ctoken, &inode);
-	dir_close (cdir);
+	// printf("in filesys_open %d\n", a);
+	// a++;
+	// printf("in filesys_open %d\n", a);
+	// a++;
 
 	palloc_free_page(dir_copy);
+	if (inode != NULL) {
+		if(inode_check_syml(inode)) {
+			// printf("in if\n");
+			// printf("in filesys_open inode sector is %p\n", inode_get_inumber(inode));
+			struct dir *old_dir = curr->wdir;
+			curr->wdir = cdir;
+			// printf("in filesys_open cdir inode sector is %p\n", inode_get_inumber(dir_get_inode(cdir)));
+			inode = syml_to_inode(inode);
+			curr->wdir = old_dir;
+		}
+	}
+	// printf("in filesys_open %d\n", a);
+	// a++;
+	dir_close (cdir);
 	struct file *file = file_open(inode);
 	sema_up(&filesys_sema);
 	return file;
@@ -393,6 +510,7 @@ filesys_remove (const char *name) {
 	// printf("in filesys_remove %d\n", a);
 	// a++;
 
+	// printf("in filesys_remove cdir is %p ctoken is %s\n", inode_get_inumber(dir_get_inode(cdir)), ctoken);
 	bool success = cdir != NULL && dir_remove(cdir, ctoken);
 	dir_close(cdir);
 	// printf("in filesys_remove %d\n", a);

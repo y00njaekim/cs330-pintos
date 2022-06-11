@@ -8,6 +8,8 @@
 #include "threads/malloc.h"
 #include "filesys/fat.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
+#include "filesys/directory.h"
 
 /* Identifies an inode. */
 #define INODE_MAGIC 0x494e4f44
@@ -17,9 +19,11 @@
 struct inode_disk {
 	disk_sector_t start;                /* First data sector. */
 	off_t length;                       /* File size in bytes. */
-	unsigned magic;                     /* Magic number. */
 	bool is_dir;
-	uint32_t unused[124];               /* Not used. */
+	bool is_syml;
+	char link[458];
+	unsigned magic;                     /* Magic number. */
+	uint32_t unused[10]; /* Not used. */
 };
 
 /* Returns the number of sectors to allocate for an inode SIZE
@@ -154,6 +158,7 @@ inode_create (disk_sector_t sector, off_t length, bool is_dir) {
 		size_t sectors = bytes_to_sectors (length);
 		disk_inode->length = length;
 		disk_inode->is_dir = is_dir;
+		disk_inode->is_syml = false;
 		disk_inode->magic = INODE_MAGIC;
 
 		if(sectors > 0) {
@@ -186,6 +191,35 @@ inode_create (disk_sector_t sector, off_t length, bool is_dir) {
 	return success;
 }
 #endif /* EFILESYS */
+
+bool
+inode_syml_create (disk_sector_t sector, const char *target) {
+	struct inode_disk *disk_inode = NULL;
+	bool success = false;
+
+	ASSERT (strlen(target) >= 0);
+
+	/* If this assertion fails, the inode structure is not exactly
+	 * one sector in size, and you should fix that. */
+	ASSERT (sizeof *disk_inode == DISK_SECTOR_SIZE);
+
+	disk_inode = calloc (1, sizeof *disk_inode);
+	if (disk_inode != NULL) {
+		disk_inode->length = strlen(target) + 1;
+		disk_inode->is_dir = false;
+		disk_inode->is_syml = true;
+		disk_inode->magic = INODE_MAGIC;
+		strlcpy(disk_inode->link, target, strlen(target) + 1);
+
+		cluster_t nclst = fat_create_chain(0);
+		if(nclst == 0) return false;
+		disk_inode->start = cluster_to_sector(nclst);
+		disk_write(filesys_disk, sector, disk_inode);
+		success = true; 
+		free (disk_inode);
+	}
+	return success;
+}
 
 /* Reads an inode from SECTOR
  * and returns a `struct inode' that contains it.
@@ -277,6 +311,7 @@ inode_close (struct inode *inode) {
 void
 inode_close (struct inode *inode) {
 	/* Ignore null pointer. */
+	// printf("in inode_close (inode:%p)\n", inode);
 	if (inode == NULL)
 		return;
 
@@ -288,7 +323,9 @@ inode_close (struct inode *inode) {
 		/* Deallocate blocks if removed. */
 		if (inode->removed) {
 			fat_remove_chain(inode->sector, 0);
+			// printf("1\n");
 			fat_remove_chain(inode->data.start, 0);
+			// printf("2\n");
 		}
 
 		free (inode); 
@@ -302,6 +339,10 @@ void
 inode_remove (struct inode *inode) {
 	ASSERT (inode != NULL);
 	inode->removed = true;
+	if (inode->open_cnt == 0) {
+		fat_remove_chain(inode->sector, 0);
+		fat_remove_chain(inode->data.start, 0);
+	}
 }
 
 /* Reads SIZE bytes from INODE into BUFFER, starting at position OFFSET.
@@ -523,6 +564,11 @@ inode_check_dir (struct inode *inode) {
 }
 
 bool
+inode_check_syml (struct inode *inode) {
+	return inode->data.is_syml;
+}
+
+bool
 inode_check_opened (struct inode *inode) {
 	if(debug_mode) printf("in inode_check_open\n");
 	return inode->open_cnt > 1;
@@ -532,4 +578,90 @@ int
 get_inode_opencnt (struct inode *inode) {
 	if(debug_mode) printf("in inode_check_open\n");
 	return inode->open_cnt;
+}
+
+struct inode*
+syml_to_inode(struct inode *inode) {
+	// int a = 1;
+	// printf("in syml_to_inode %d\n", a);
+	// a++;
+
+	char *dir_copy;
+	dir_copy = palloc_get_page (0);
+	if (dir_copy == NULL) return NULL;
+	strlcpy(dir_copy, inode->data.link, PGSIZE);
+	// printf("in syml_to_inode inode->data.link is %s\n", dir_copy);
+
+	struct thread *curr = thread_current();
+	// 복사 과정 reference: process_create_initd (process.c)
+	// printf("in syml_to_inode %d\n", a);
+	// a++;
+
+	struct dir *cdir;
+	if (dir_copy[0] == '/') {
+		cdir = dir_open_root();
+	} else {
+		if(curr->wdir != NULL) cdir = dir_reopen(curr->wdir);
+		else cdir = dir_open_root();
+	}
+	struct inode *cinode;
+	// printf("in syml_to_inode %d\n", a);
+	// a++;
+
+	// char bf[NAME_MAX + 1];
+	// dir_skip_dot(cdir);
+	// if(dir_readdir (cdir, bf))
+	// {
+	// 	printf("readdir: %s\n", bf);
+	// }
+
+	// printf("in syml_to_inode %d\n", a);
+	// a++;
+	char *ctoken;
+	char *ntoken;
+	char *save_ptr;
+	ctoken = strtok_r(dir_copy, "/", &save_ptr);
+	ntoken = strtok_r(NULL, "/", &save_ptr);
+	while (ctoken != NULL && ntoken != NULL) {
+		// printf("in while\n");
+		// printf("in syml_to_inode, cdir sector is %p, ctoken is %s\n", inode_get_inumber(dir_get_inode(cdir)), ctoken);
+		if(!dir_lookup(cdir, ctoken, &cinode)) {
+			// printf("in syml_to_inode, in if\n");
+			dir_close(cdir);
+			return NULL;
+		} else if(!inode_check_dir(cinode)) {
+			// printf("in syml_to_inode, in else if\n");
+			dir_close(cdir);
+			palloc_free_page(dir_copy);
+			return NULL;
+		}
+		// printf("in syml_to_inode, else\n");
+		dir_close(cdir);
+		cdir = dir_open(cinode);
+
+		ctoken = ntoken;
+		ntoken = strtok_r(NULL, "/", &save_ptr);
+	}
+	if(ctoken == NULL) ctoken = ".";
+
+	// printf("in syml_to_inode %d\n", a);
+	// a++;
+	struct inode *tinode = NULL;
+
+	if (cdir != NULL)
+		dir_lookup (cdir, ctoken, &tinode);
+	dir_close (cdir);
+	// printf("in syml_to_inode %d\n", a);
+	// a++;
+
+	if (tinode != NULL) {
+		if(inode_check_syml(tinode)) {
+			// printf("in if\n");
+			// printf("in filesys_open inode sector is %p\n", inode_get_inumber(inode));
+			tinode = syml_to_inode(tinode);
+		}
+	}
+
+	palloc_free_page(dir_copy);
+	return tinode;
 }

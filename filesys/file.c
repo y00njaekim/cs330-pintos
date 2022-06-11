@@ -53,6 +53,7 @@ file_duplicate (struct file *file) {
 /* Closes FILE. */
 void
 file_close (struct file *file) {
+	// printf("in file_close\n");
 	if (file != NULL) {
 		file_allow_write (file);
 		inode_close (file->inode);

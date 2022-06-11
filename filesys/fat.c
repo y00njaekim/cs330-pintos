@@ -203,6 +203,7 @@ void
 fat_remove_chain (cluster_t clst, cluster_t pclst) {
 	/* TODO: Your code goes here. */
 	cluster_t cclst = (pclst == 0) ? clst : fat_get(pclst);
+	// if(cclst == 0) return;
 	cluster_t rclst;
 	if (pclst != 0) {
 		if(fat_get(pclst) == EOChain) return;

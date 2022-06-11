@@ -100,6 +100,7 @@ dir_get_inode_opencnt (struct dir *dir) {
 void
 dir_skip_dot(struct dir *dir) {
 	ASSERT (dir != NULL);
+	// if(dir->pos == 0) dir->pos = 2 * sizeof(struct dir_entry);
 	if(dir->pos == 0) dir->pos = 2 * sizeof(struct dir_entry);
 }
 
@@ -136,6 +137,7 @@ lookup (const struct dir *dir, const char *name,
 bool
 dir_lookup (const struct dir *dir, const char *name,
 		struct inode **inode) {
+	// printf("in dir_lookup dir's sector is %p, name is %s\n", inode_get_inumber(dir_get_inode(dir)), name);
 	struct dir_entry e;
 
 	ASSERT (dir != NULL);
@@ -266,7 +268,6 @@ done:
 bool
 dir_readdir (struct dir *dir, char name[NAME_MAX + 1]) {
 	struct dir_entry e;
-	dir_skip_dot(dir);
 	while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) {
 		dir->pos += sizeof e;
 		if (e.in_use) {
