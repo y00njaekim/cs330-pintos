@@ -40,6 +40,7 @@ struct inode {
 	int open_cnt;                       /* Number of openers. */
 	bool removed;                       /* True if deleted, false otherwise. */
 	int deny_write_cnt;                 /* 0: writes ok, >0: deny writes. */
+	struct semaphore inode_sema;
 	struct inode_disk data;             /* Inode content. */
 };
 
@@ -259,6 +260,7 @@ inode_open (disk_sector_t sector) {
 	inode->removed = false;
 	if(debug_mode) printf("in inode_open %d\n", a);
 	a++;
+	sema_init(&inode->inode_sema, 1);
 	disk_read (filesys_disk, inode->sector, &inode->data);
 	if(debug_mode) printf("in inode_open %d\n", a);
 	a++;
@@ -471,7 +473,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 
 	if (inode->deny_write_cnt)
 		return 0;
-
+	sema_down(&inode->inode_sema);
 	while (size > 0) {
 		/* Sector to write, starting byte offset within sector. */
 		disk_sector_t sector_idx = byte_to_sector (inode, offset+size);
@@ -528,6 +530,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 		bytes_written += chunk_size;
 	}
 	free (bounce);
+	sema_up(&inode->inode_sema);
 
 	return bytes_written;
 }

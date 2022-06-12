@@ -239,10 +239,10 @@ filesys_dir_create (const char *name) {
 	dir_close(cdir);
 
 	if (!success && inode_sector != 0) fat_remove_chain(sector_to_cluster(inode_sector), 0);
-	if(strcmp(name, "/0/0/0/0") == 0) {
-		printf("@@@@@@@@@@ /0/0/0/0 disk is %d\n", inode_sector);
-		printf("@@@@@@@@@@ dir_itself's open_cnt is %d\n", dir_get_inode_opencnt(dir_itself));
-	}
+	// if(strcmp(name, "/0/0/0/0") == 0) {
+	// 	printf("@@@@@@@@@@ /0/0/0/0 disk is %d\n", inode_sector);
+	// 	printf("@@@@@@@@@@ dir_itself's open_cnt is %d\n", dir_get_inode_opencnt(dir_itself));
+	// }
 	palloc_free_page(dir_copy);
 	sema_up(&filesys_sema);
 	return success;
