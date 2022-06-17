@@ -22,10 +22,12 @@
 #include "intrinsic.h"
 #ifdef VM
 #include "vm/vm.h"
+#include "threads/malloc.h"
 #endif
 
 static struct lock load_lock;
 static struct semaphore load_sema;
+void load_sema_init(void);
 
 void load_sema_init(void) {
 	sema_init(&load_sema, 1);
@@ -208,6 +210,16 @@ __do_fork (void *aux) {
 		current->fd_table[fd_step] = file_duplicate(parent->fd_table[fd_step]);
 	}
 	current->fdx = parent->fdx;
+
+	#ifdef EFILESYS
+	if(parent->wdir != NULL) {
+		if(current->wdir != NULL) dir_close(current->wdir);
+		current->wdir = dir_reopen(parent->wdir);
+	} else {
+		if(current->wdir != NULL) dir_close(current->wdir);
+		current->wdir = dir_open_root();
+	}
+#endif
 	sema_up(&parent->fork_sema);
 
 	process_init ();
@@ -290,6 +302,9 @@ process_exec (void *f_name) {
 
 	/* We first kill the current context */
 	process_cleanup ();
+	#ifdef VM
+		supplemental_page_table_init(&thread_current()->spt);
+	#endif
 
 	/* And then load the binary */
 	// lock_acquire(&load_lock);
@@ -382,6 +397,9 @@ process_exit (void) {
 	if(curr->loaded_file != NULL) {
 		file_close(curr->loaded_file);
 	}
+	#ifdef EFILESYS
+	if(curr->wdir != NULL) dir_close(curr->wdir);
+	#endif
 
 	// QUESTION: sema_up 위치가 여기가 맞나?
 	sema_up(&curr->wait_sema);
@@ -390,6 +408,9 @@ process_exit (void) {
 	/* QUESTION: process termination message는 exit() 시스템 콜에서 불리니 print 필요 없나? */
 	// printf ("%s: exit(%d)\n", ...);
 	process_cleanup ();
+	#ifdef VM
+	supplemental_page_table_init (&thread_current ()->spt);
+#endif
 }
 
 /* Free the current process's resources. */
@@ -719,7 +740,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		/* Load this page. */
 		if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes) {
 			palloc_free_page (kpage);
-			return false;
+			return false; // false if disk read error occurs.
 		}
 		memset (kpage + page_read_bytes, 0, page_zero_bytes);
 
@@ -783,6 +804,42 @@ lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
+
+	/* TODO:
+	 * file_seek (file, ofs); 추가 (`load_segment` 에서 하는게 맞는 듯 - yoonjae)
+	 * ofs는 어디서? aux를 통해 전달! (구조체를 vm.h에 정의)
+	 * file, ofs, page_read_bytes, zero_bytes, writeable
+	 * aux에서 접근할 수 있도록 하는 자료구조 찾아보기 (이미 정의되어 있는가?)
+	 */
+
+	// QUESTION: void *kva = page->frame->kva
+	// TODO: 기존 load_segment에 있었던 로딩 부분을 lazy_load_segment에서 구현
+	// 기존 page load 부분에서 kpage 등을 주어진 page를 이용해 수정
+	/* Load this page. */
+	struct aux_load_segment *aux_copy = aux;
+	file_seek(aux_copy->file, aux_copy->ofs);
+	void *kpage = page->frame->kva;
+	if (file_read(aux_copy->file, kpage, aux_copy->page_read_bytes) != (int)aux_copy->page_read_bytes)
+	{
+		// Yoonjae's Question: file_read 에서 에러핸들링? page 삭제? page->frame 삭제?
+
+		// vm_alloc_page_with_initializer 에서 할당을 하는데,
+		// 본 함수에서 할당하지는 않으니까 palloc 부분은 기존과 다르게 필요없다.
+		// palloc 해주는게 맞는듯 - yoonjae
+		free(aux_copy);
+		return false;
+	}
+	// Yoonjae's TODO: aux free 해줘도 되나?
+	memset (kpage + aux_copy->page_read_bytes, 0, aux_copy->page_zero_bytes);	// kpage 대신 page의 frame에 있는 kva
+
+	/* Add the page to the process's address space. */
+	// if (!install_page (page, kpage, writable)) { // TRY: 1st parameter 로 page 를 넣어야 할지 page->va 를 넣어야 할지? page 인거 같긴 함
+	// 	printf("fail\n");
+	// 	palloc_free_page (kpage);
+	// 	return false;
+	// }
+	free(aux_copy);
+	return true;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -799,6 +856,9 @@ lazy_load_segment (struct page *page, void *aux) {
  *
  * Return true if successful, false if a memory allocation error
  * or disk read error occurs. */
+
+
+
 static bool
 load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		uint32_t read_bytes, uint32_t zero_bytes, bool writable) {
@@ -814,12 +874,21 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
-		void *aux = NULL;
+		struct aux_load_segment *aux = malloc(sizeof(struct aux_load_segment));
+		// Yoonjae's Question: aux 해제는 어디서?
+		if(aux == NULL) return false;
+		aux->file = file;
+		aux->page_read_bytes = page_read_bytes;
+		aux->page_zero_bytes = page_zero_bytes;
+		aux->ofs = ofs;
+		// TODO: 여기서 aux 설정해서 ofs 같은거 넘겨줘야함
+		// 새로 자료구조 만들어야하나? 만들어야 할듯 aux자료구조 ㄱㄱ
 		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
 					writable, lazy_load_segment, aux))
 			return false;
 
 		/* Advance. */
+		ofs += page_read_bytes;
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;
@@ -838,6 +907,43 @@ setup_stack (struct intr_frame *if_) {
 	 * TODO: You should mark the page is stack. */
 	/* TODO: Your code goes here */
 
+	/* TODO: GitBook 참고하여 작성함
+	 * 첫번째 스택 페이지는 lazily하게 할당될 필요 없으므로, 
+	 * 로드타임에 할당하고 초기화한뒤, 마커로 표시 */
+	/* 기존 코드와 같은 역할, 다른 방법이므로 기존 코드를 reference로 옆에 주석 달아두겠음 */
+
+	if(!vm_alloc_page(VM_ANON | VM_MARKER_0, stack_bottom, true)) return false;
+	success = vm_claim_page(stack_bottom);
+
+	// uint8_t *kpage = palloc_get_page(PAL_USER | PAL_ZERO); // kpage palloc 대신에 vm_alloc_page_with_initializer 사용하면 될 듯
+	// if (kpage != NULL) {
+		// vm_alloc_page_with_initializer에서 type 항에 marker 표시 해주기
+		// if(!vm_alloc_page(VM_ANON | VM_MARKER_0, stack_bottom, true)) return false;
+		// success = install_page (stack_bottom, kpage, true);	// 이게 위에 있는 stack_bottom에 들어감.
+		// success = vm_claim_page(stack_bottom);
+		// 기존에는 install_page(stack_bottom) 했는데, 여기 첫번째 항이 stack_bottom
+		// 첫번째 항 stack_bottom이 upage에 들어갔으니까, 바뀐 코드에서도 upage 대신에 stack_bottom 넣으면 될듯
+		// 무슨말이냐면, 위에 있는 vm_alloc_page_with... 여기 두번째 항 upage에 stack_bottom 넣는다는 뜻
+		// 여기서는 install_page 대신에 vm_claim_page 하면 될듯?	
+		// vm_claim_page(va) 에서 va도 page claim 부르는 주소니까 스택바텀이 맞다.
+	if (success) {
+		if_->rsp = USER_STACK;
+		thread_current()->stack_ceiling = (uintptr_t)stack_bottom; // 이건 왜 하는거지?
+	}
+	else {
+
+		// Yoonjae's TRY: frame free
+		// vm_dealloc_frame(spt_find_page(&thread_current()->spt, stack_bottom)->frame);
+		struct page *p = spt_find_page(&thread_current()->spt, stack_bottom);
+		if (p != NULL) spt_remove_page(&thread_current()->spt, p);
+	}
+		
+		// palloc_free_page (kpage);	// 요건 마찬가지로 필요없음 아닌가 필요할수도 저 위에처럼 구현하면
 	return success;
+	// return success;
+
+	/* 참고용 기존 셋업스택 코드 (project2) */
+	// uint8_t *kpage;
+	// bool success = false;
 }
 #endif /* VM */

@@ -720,6 +720,10 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->nice = NICE_DEFAULT;
 	t->recent_cpu = RECENT_CPU_DEFAULT;
 
+	#ifdef EFILESYS
+	t->wdir = NULL;
+	#endif
+
 	list_insert_ordered(&thread_list, &t->thread_elem, prior_thread_elem, NULL);
 	
 	// QUESTION : thread_create 에서 idle_thread 만들 일이 있으려나 ? 있을듯

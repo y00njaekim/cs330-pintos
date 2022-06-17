@@ -2,6 +2,7 @@
 #define VM_VM_H
 #include <stdbool.h>
 #include "threads/palloc.h"
+#include <hash.h>
 
 enum vm_type {
 	/* page not initialized */
@@ -46,7 +47,9 @@ struct page {
 	struct frame *frame;   /* Back reference for frame */
 
 	/* Your implementation */
-
+	struct hash_elem hash_elem; /* Hash table element. */
+	bool rw;	/* To check if the page is writable or read-only. */
+	// CHECK: enum vm_type vmtype 추가?
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
 	union {
@@ -61,9 +64,12 @@ struct page {
 
 /* The representation of "frame" */
 struct frame {
-	void *kva;
-	struct page *page;
+	void *kva;				/* kernel virtual address */
+	struct page *page;		/* page structure */
+	struct list_elem frame_elem;
 };
+
+struct list frame_list;
 
 /* The function table for page operations.
  * This is one way of implementing "interface" in C.
@@ -85,6 +91,7 @@ struct page_operations {
  * We don't want to force you to obey any specific design for this struct.
  * All designs up to you for this. */
 struct supplemental_page_table {
+	struct hash pages;
 };
 
 #include "threads/thread.h"
@@ -97,9 +104,11 @@ struct page *spt_find_page (struct supplemental_page_table *spt,
 bool spt_insert_page (struct supplemental_page_table *spt, struct page *page);
 void spt_remove_page (struct supplemental_page_table *spt, struct page *page);
 
-void vm_init (void);
-bool vm_try_handle_fault (struct intr_frame *f, void *addr, bool user,
-		bool write, bool not_present);
+void vm_dealloc_frame(struct frame *frame);
+
+void vm_init(void);
+bool vm_try_handle_fault(struct intr_frame *f, void *addr, bool user,
+												 bool write, bool not_present);
 
 #define vm_alloc_page(type, upage, writable) \
 	vm_alloc_page_with_initializer ((type), (upage), (writable), NULL, NULL)

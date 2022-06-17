@@ -128,6 +128,11 @@ struct thread {
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
+	uintptr_t stack_ceiling;							/* reference process.c:881 */
+	uintptr_t user_rsp;											/* reference interupt_frame member */
+#endif
+#ifdef EFILESYS
+	struct dir *wdir;
 #endif
 
 	/* Owned by thread.c. */

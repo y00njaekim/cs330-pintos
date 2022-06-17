@@ -5,9 +5,12 @@
 
    See hash.h for basic information. */
 
+#include "threads/thread.h"
 #include "hash.h"
 #include "../debug.h"
 #include "threads/malloc.h"
+#include "vm/vm.h"
+#include "threads/mmu.h"
 
 #define list_elem_to_hash_elem(LIST_ELEM)                       \
 	list_entry(LIST_ELEM, struct hash_elem, list_elem)
@@ -392,3 +395,36 @@ remove_elem (struct hash *h, struct hash_elem *e) {
 	list_remove (&e->list_elem);
 }
 
+/* page functions, reference: GitBook */
+
+/* Returns a hash value for page p. */
+
+hash_hash_func*
+page_hash (struct hash_elem *p_, void *aux UNUSED) {
+  const struct page *p = hash_entry (p_, struct page, hash_elem);
+  return hash_bytes (&p->va, sizeof p->va);
+}
+
+/* Returns true if page a precedes page b. */
+hash_less_func*
+page_less (struct hash_elem *a_,
+           struct hash_elem *b_, void *aux UNUSED) {
+  struct page *a = hash_entry (a_, struct page, hash_elem);
+  struct page *b = hash_entry (b_, struct page, hash_elem);
+
+  return a->va < b->va;
+}
+
+/* Returns the page containing the given virtual address, or a null pointer if no such page exists. */
+struct page*
+page_lookup (const void *address) {
+  struct page p;
+  struct hash_elem *e;
+  struct thread *curr = thread_current();
+
+  p.va = pg_round_down(address); // Check: pg_round_down 추가 설정
+  // p.va = address;
+	// TODO: pages 수정하기 (struct thread안에 spt을 정의해야하는듯?)
+  e = hash_find (&curr->spt.pages, &p.hash_elem);	
+  return e != NULL ? hash_entry (e, struct page, hash_elem) : NULL;
+}
